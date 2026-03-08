@@ -1,7 +1,7 @@
 path: data/datasets
 
 train: train/images
-val: val/images
+val: valid/images
 test: test/images
 
 nc: 4
@@ -11,6 +11,3 @@ names:
   1: bicycle
   2: car
   3: motorcycle
-  5: bus
-  6: train
-  7: truck
