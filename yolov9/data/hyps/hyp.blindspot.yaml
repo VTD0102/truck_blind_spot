@@ -1,0 +1,67 @@
+# =============================
+# Optimizer & Learning Rate
+# =============================
+
+lr0: 0.01        # learning rate ban đầu (tốc độ cập nhật trọng số)
+lrf: 0.01        # learning rate cuối cùng = lr0 * lrf
+momentum: 0.937  # giúp cập nhật gradient ổn định hơn
+weight_decay: 0.0005  # giảm overfitting bằng cách phạt trọng số lớn
+
+warmup_epochs: 3.0       # số epoch tăng dần learning rate lúc đầu
+warmup_momentum: 0.8     # momentum ban đầu trong warmup
+warmup_bias_lr: 0.1      # learning rate riêng cho bias lúc warmup
+
+# =============================
+# Loss Function Weight
+# =============================
+
+box: 7.5     # trọng số cho lỗi bounding box
+cls: 0.5     # trọng số cho lỗi phân loại class
+cls_pw: 1.0  # trọng số positive cho BCE loss của class
+obj: 0.7     # trọng số cho lỗi objectness (có object hay không)
+obj_pw: 1.0  # trọng số positive cho BCE loss của objectness
+dfl: 1.5     # trọng số Distribution Focal Loss (YOLOv9 dùng để refine bbox)
+
+# =============================
+# Anchor & IoU Training
+# =============================
+
+iou_t: 0.20     # ngưỡng IoU để xác định bbox đúng
+anchor_t: 5.0   # ngưỡng matching anchor với bbox
+
+# anchors: 3    # số anchor mỗi layer (thường để mặc định)
+
+fl_gamma: 0.0   # focal loss gamma (0 = không dùng focal loss)
+
+# =============================
+# Color Augmentation
+# =============================
+
+hsv_h: 0.015    # thay đổi hue (màu sắc) nhẹ
+hsv_s: 0.4      # thay đổi độ đậm màu
+hsv_v: 0.2      # thay đổi độ sáng
+
+# =============================
+# Geometric Augmentation
+# =============================
+
+degrees: 0.0       # xoay ảnh (0 = không xoay)
+translate: 0.1     # dịch chuyển object trong ảnh
+scale: 0.2         # phóng to / thu nhỏ object nhẹ
+shear: 0.0         # biến dạng hình học (không dùng)
+perspective: 0.0   # biến dạng phối cảnh (không dùng)
+
+# =============================
+# Flip Augmentation
+# =============================
+
+flipud: 0.0   # lật ảnh theo chiều dọc (không dùng)
+fliplr: 0.0   # lật ảnh theo chiều ngang (tắt để giữ ngữ cảnh giao thông)
+
+# =============================
+# YOLO Special Augmentations
+# =============================
+
+mosaic: 0.3      # ghép 4 ảnh thành 1 để tăng đa dạng dữ liệu
+mixup: 0.0       # trộn 2 ảnh lại với nhau (tắt vì không phù hợp giao thông)
+copy_paste: 0.0  # copy object sang ảnh khác (tắt để tránh scene giả)
