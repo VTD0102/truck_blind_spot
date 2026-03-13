@@ -46,7 +46,7 @@ standardize_dataset
 │   └── check_error_images.py
 ├── check_dataset.py (kiểm tra bbox của tất cả các ảnh)
 ├── analyze_dataset.py (đếm số class trong toàn bộ dataset mẫu)
-├── remap_labels.py (remap lại các class sử dụng trong dataset, vì dataset cũ chỉ làm 
+├── remap_labels.py (remap lại các class sử dụng trong dataset, vì dataset cũ chỉ làm
                         các class truck, bus, không làm person, bicycle)
 └── auto_add_person_bicycle.py (tự động add các label person, bicycle cho từng ảnh)
 
