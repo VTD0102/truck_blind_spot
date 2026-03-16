@@ -1,0 +1,6 @@
+#!/Users/haidangstore/Documents/truck_blind_spot/yolov9/yolo_env/bin/python3.11
+import sys
+from cli.wc import main
+if __name__ == '__main__':
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
+    sys.exit(main())
