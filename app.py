@@ -9,7 +9,7 @@ from src.pipeline import BlindSpotPipeline
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-VIDEO_PATH = PROJECT_ROOT / "videos" / "test_video.mp4"
+VIDEO_PATH = PROJECT_ROOT / "assets" /"videos"/ "test_video.mp4"
 WINDOW_NAME = "YOLOv9 Blind Spot Demo"
 
 
