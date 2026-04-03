@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 import cv2
+import numpy as np
 
 try:
     from .detector import Detection, YOLOv9Detector
