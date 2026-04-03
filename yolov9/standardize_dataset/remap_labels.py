@@ -54,4 +54,4 @@ for label_dir in label_dirs:   # duyệt từng thư mục label
             with open(file_path, "w") as f:
                 f.write("\n".join(new_lines) + "\n")   # ghi đè file
 
-print("Remap hoàn tất.")   # thông báo hoàn thành
+print("Remap hoàn tất.") 
