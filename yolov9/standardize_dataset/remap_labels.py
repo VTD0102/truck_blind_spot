@@ -1,4 +1,4 @@
-import os   # thư viện làm việc với file/thư mục
+import os
 
 # Mapping từ dataset cũ -> project mới
 # old_id: new_id
@@ -10,9 +10,9 @@ ID_MAP = {
 }
 
 label_dirs = [
-    "yolov9/data/datasets/train/labels",  # thư mục train
-    "yolov9/data/datasets/valid/labels",  # thư mục validation
-    "yolov9/data/datasets/test/labels"    # thư mục test
+    "yolov9/data/datasets/train/labels",  
+    "yolov9/data/datasets/valid/labels", 
+    "yolov9/data/datasets/test/labels"    
 ]
 
 for label_dir in label_dirs:   # duyệt từng thư mục label
@@ -26,13 +26,13 @@ for label_dir in label_dirs:   # duyệt từng thư mục label
 
         file_path = os.path.join(label_dir, file_name)  # tạo đường dẫn file
 
-        new_lines = []   # lưu nội dung mới
+        new_lines = []   
         changed = False  # đánh dấu file có bị thay đổi không
 
         with open(file_path, "r") as f:
             lines = f.readlines()   # đọc toàn bộ file
 
-        for line in lines:   # duyệt từng dòng
+        for line in lines:   
             parts = line.strip().split()   # tách dữ liệu
 
             if len(parts) != 5:   # kiểm tra format YOLO (phải có 5 phần)
@@ -45,12 +45,12 @@ for label_dir in label_dirs:   # duyệt từng thư mục label
                 print(f"ID không có trong mapping ở {file_path}: {old_id}")
                 continue
 
-            new_id = ID_MAP[old_id]   # lấy class id mới
+            new_id = ID_MAP[old_id]   
             parts[0] = str(new_id)   # thay id cũ bằng id mới
-            new_lines.append(" ".join(parts))   # ghép lại dòng
+            new_lines.append(" ".join(parts))   
             changed = True   # đánh dấu đã thay đổi
 
-        if changed:   # nếu có thay đổi
+        if changed:   
             with open(file_path, "w") as f:
                 f.write("\n".join(new_lines) + "\n")   # ghi đè file
 
