@@ -1,0 +1,23 @@
+# ── Core ─────────────────────────────────────────────────────────────────────
+numpy>=2.0.0                # opencv-python-headless>=4.10 yêu cầu numpy>=2
+PyYAML>=6.0
+requests>=2.31.0
+tqdm>=4.66.0
+psutil>=5.9.0
+
+# ── Vision ───────────────────────────────────────────────────────────────────
+opencv-python>=4.8.0
+Pillow>=9.0.0
+
+# ── Deep Learning ─────────────────────────────────────────────────────────────
+torch>=2.0.0
+torchvision>=0.15.0
+thop>=0.1.1.post2209072238  # FLOPs counter cho YOLOv9
+ipykernel                   # Hỗ trợ chạy Jupyter Notebook trong venv
+ipython                     # Interactive Python shell
+
+# ── Analysis & Visualisation (optional, dùng cho notebook/report) ─────────────
+scipy>=1.10.0
+matplotlib>=3.7.0
+pandas>=2.0.0
+seaborn>=0.12.0
