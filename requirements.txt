@@ -1,5 +1,5 @@
 # ── Core ─────────────────────────────────────────────────────────────────────
-numpy>=1.23.0,<2.0          # pin upper để tránh breaking change với PyTorch cũ
+numpy>=2.0.0                # opencv-python-headless>=4.10 yêu cầu numpy>=2
 PyYAML>=6.0
 requests>=2.31.0
 tqdm>=4.66.0
