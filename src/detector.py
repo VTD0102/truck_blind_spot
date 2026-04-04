@@ -29,7 +29,7 @@ class Detection:
     class_name: str
     in_roi: bool = False
     anchor_point: Optional[Tuple[int, int]] = None
-
+#ngonluoon
 
 class YOLOv9Detector:
     def __init__(

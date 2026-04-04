@@ -1,7 +1,7 @@
 from pathlib import Path
 from ultralytics import YOLO
 
-# ===== CẤU HÌNH =====
+# CẤU HÌNH 
 MODEL_NAME = "yolov8x.pt"   # chính xác cao, hơi chậm
 CONF_THRES = 0.25
 IMG_SIZE = 640
@@ -17,14 +17,14 @@ IOU_THRESHOLD = 0.5
 
 SPLITS = ["train", "valid", "test"]
 
-# ===== PATH =====
+# PATH 
 CURRENT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = CURRENT_DIR.parent
 
 DATASET_ROOT = PROJECT_ROOT / "data" / "datasets"
 
 
-def yolo_to_xyxy(x, y, w, h, img_w, img_h):
+def yolo_to_xyxy(x, y, w, h, img_w, img_h): # đổi bbox YOLO -> tọa độ góc
     x1 = (x - w / 2) * img_w
     y1 = (y - h / 2) * img_h
     x2 = (x + w / 2) * img_w
@@ -32,7 +32,7 @@ def yolo_to_xyxy(x, y, w, h, img_w, img_h):
     return [x1, y1, x2, y2]
 
 
-def xyxy_to_yolo(x1, y1, x2, y2, img_w, img_h):
+def xyxy_to_yolo(x1, y1, x2, y2, img_w, img_h): # đổi bbox góc -> định dạng YOLO
     x_center = ((x1 + x2) / 2) / img_w
     y_center = ((y1 + y2) / 2) / img_h
     w = (x2 - x1) / img_w
@@ -46,7 +46,7 @@ def xyxy_to_yolo(x1, y1, x2, y2, img_w, img_h):
     return x_center, y_center, w, h
 
 
-def compute_iou(boxA, boxB):
+def compute_iou(boxA, boxB): # tính IoU giữa 2 bbox (so sánh bbox mới và bbox cũ)
     xA = max(boxA[0], boxB[0])
     yA = max(boxA[1], boxB[1])
     xB = min(boxA[2], boxB[2])
@@ -66,7 +66,7 @@ def compute_iou(boxA, boxB):
     return inter_area / union
 
 
-def load_existing_labels(label_path, img_w, img_h):
+def load_existing_labels(label_path, img_w, img_h): # đọc label cũ từ file
     existing_lines = []
     existing_boxes = []
 
@@ -87,7 +87,7 @@ def load_existing_labels(label_path, img_w, img_h):
     return existing_lines, existing_boxes
 
 
-def is_duplicate(new_box, existing_boxes, target_cls):
+def is_duplicate(new_box, existing_boxes, target_cls): # kiểm tra bbox mới có trùng không
     for cls_id, old_box in existing_boxes:
         if cls_id != target_cls:
             continue
@@ -96,7 +96,7 @@ def is_duplicate(new_box, existing_boxes, target_cls):
     return False
 
 
-def process_split(model, split):
+def process_split(model, split): # tự động thêm bbox person và bicycle 
     img_dir = DATASET_ROOT / split / "images"
     label_dir = DATASET_ROOT / split / "labels"
 
@@ -108,6 +108,7 @@ def process_split(model, split):
         print(f"[WARN] Không tìm thấy thư mục label: {label_dir}")
         return
 
+    # lấy danh sách ảnh 
     image_files = sorted([
         p for p in img_dir.iterdir()
         if p.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
@@ -118,9 +119,10 @@ def process_split(model, split):
     added_total = 0
     changed_files = 0
 
-    for idx, img_path in enumerate(image_files, 1):
+    for idx, img_path in enumerate(image_files, 1): # duyệt từng ảnh
         label_path = label_dir / f"{img_path.stem}.txt"
-
+    
+        # chạy model detect 
         results = model.predict(
             source=str(img_path),
             conf=CONF_THRES,
@@ -134,17 +136,18 @@ def process_split(model, split):
         r = results[0]
         img_h, img_w = r.orig_shape
 
+        # đọc label cũ và bbox cũ
         existing_lines, existing_boxes = load_existing_labels(label_path, img_w, img_h)
         new_lines = list(existing_lines)
         added_in_this_file = 0
 
         boxes = r.boxes
         if boxes is not None:
-            for box in boxes:
+            for box in boxes: # duyệt từng bbox model detect
                 coco_cls_id = int(box.cls[0].item())
                 cls_name = model.names[coco_cls_id]
 
-                if cls_name not in AUTO_CLASSES:
+                if cls_name not in AUTO_CLASSES: # lọc class
                     continue
 
                 project_cls = AUTO_CLASSES[cls_name]
@@ -152,21 +155,21 @@ def process_split(model, split):
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 new_box = [x1, y1, x2, y2]
 
-                if is_duplicate(new_box, existing_boxes, project_cls):
+                if is_duplicate(new_box, existing_boxes, project_cls): # kiểm tra trùng 
                     continue
 
-                x, y, w, h = xyxy_to_yolo(x1, y1, x2, y2, img_w, img_h)
+                x, y, w, h = xyxy_to_yolo(x1, y1, x2, y2, img_w, img_h) # convert bbox -> yolo 
 
                 if w <= 0 or h <= 0:
                     continue
 
-                new_line = f"{project_cls} {x:.6f} {y:.6f} {w:.6f} {h:.6f}"
+                new_line = f"{project_cls} {x:.6f} {y:.6f} {w:.6f} {h:.6f}" # thêm vào label
                 new_lines.append(new_line)
                 existing_boxes.append((project_cls, new_box))
                 added_in_this_file += 1
                 added_total += 1
 
-        if added_in_this_file > 0:
+        if added_in_this_file > 0: # ghi lại file nếu có thay đổi
             with open(label_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(new_lines) + "\n")
             changed_files += 1
