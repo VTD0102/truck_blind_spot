@@ -7,8 +7,10 @@ import numpy as np
 
 try:
     from .detector import Detection
+    from .roi import ROIZone
 except ImportError:
     from detector import Detection
+    from roi import ROIZone
 
 
 class BlindSpotVisualizer:
@@ -16,40 +18,45 @@ class BlindSpotVisualizer:
         self,
         normal_color: Tuple[int, int, int] = (0, 200, 0),
         warning_color: Tuple[int, int, int] = (0, 0, 255),
-        roi_color: Tuple[int, int, int] = (0, 165, 255),
         thickness: int = 2,
         font_scale: float = 0.6,
+        roi_alpha: float = 0.18,
     ) -> None:
         self.normal_color = normal_color
         self.warning_color = warning_color
-        self.roi_color = roi_color
         self.thickness = thickness
         self.font_scale = font_scale
+        self.roi_alpha = roi_alpha
 
     def draw(
         self,
         frame: np.ndarray,
         detections: Iterable[Detection],
-        roi_polygon: Optional[Sequence[Tuple[int, int]]] = None,
+        roi_zones: Optional[Sequence[ROIZone]] = None,
         copy: bool = True,
     ) -> np.ndarray:
         output = frame.copy() if copy else frame
 
-        polygon = self._normalize_polygon(roi_polygon)
-        if polygon is not None:
-            cv2.polylines(output, [polygon], True, self.roi_color, 2)
-            self._draw_label(output, "ROI", (polygon[0][0], polygon[0][1] - 10), self.roi_color)
+        if roi_zones:
+            self._draw_roi_zones(output, roi_zones)
 
         warning_count = 0
         for detection in detections:
-            color = self.warning_color if detection.in_roi else self.normal_color
+            in_roi = getattr(detection, "in_roi", False)
+            zone_name = getattr(detection, "zone_name", None)
+            risk_level = getattr(detection, "risk_level", None)
+
+            color = self._resolve_detection_color(detection, roi_zones)
             x1, y1, x2, y2 = detection.bbox
             cv2.rectangle(output, (x1, y1), (x2, y2), color, self.thickness)
 
             label = f"{detection.class_name} {detection.confidence:.2f}"
-            if detection.in_roi:
+            if in_roi:
                 warning_count += 1
-                label = f"BLIND SPOT | {label}"
+                prefix = zone_name if zone_name else "ROI"
+                if risk_level:
+                    prefix = f"{prefix} [{risk_level}]"
+                label = f"{prefix} | {label}"
 
             self._draw_label(output, label, (x1, max(20, y1 - 10)), color)
 
@@ -60,6 +67,40 @@ class BlindSpotVisualizer:
             self._draw_banner(output, f"BLIND SPOT ALERT: {warning_count}")
 
         return output
+
+    def _draw_roi_zones(self, frame: np.ndarray, roi_zones: Sequence[ROIZone]) -> None:
+        overlay = frame.copy()
+
+        # Bước 1: vẽ fill vào overlay để blend alpha
+        for zone in roi_zones:
+            polygon = np.array(zone.points, dtype=np.int32)
+            cv2.fillPoly(overlay, [polygon], zone.color)
+
+        # Bước 2: blend fill nhẹ (roi_alpha) lên frame gốc
+        cv2.addWeighted(overlay, self.roi_alpha, frame, 1.0 - self.roi_alpha, 0, frame)
+
+        # Bước 3: vẽ viền và label SAU blend để luôn hiển thị rõ nét (không bị mờ)
+        for zone in roi_zones:
+            polygon = np.array(zone.points, dtype=np.int32)
+            cv2.polylines(frame, [polygon], True, zone.color, 2)
+
+            anchor = polygon[0]
+            label_pos = (int(anchor[0]), max(20, int(anchor[1]) - 10))
+            text = f"{zone.name} [{zone.risk_level}]"
+            self._draw_label(frame, text, label_pos, zone.color)
+
+    def _resolve_detection_color(
+        self,
+        detection: Detection,
+        roi_zones: Optional[Sequence[ROIZone]],
+    ) -> Tuple[int, int, int]:
+        if not detection.in_roi or not detection.zone_name or not roi_zones:
+            return self.normal_color if not detection.in_roi else self.warning_color
+
+        for zone in roi_zones:
+            if zone.name == detection.zone_name:
+                return zone.color
+        return self.warning_color
 
     def _draw_banner(self, frame: np.ndarray, text: str) -> None:
         text_size, _ = cv2.getTextSize(
@@ -103,15 +144,3 @@ class BlindSpotVisualizer:
             2,
             cv2.LINE_AA,
         )
-
-    @staticmethod
-    def _normalize_polygon(
-        roi_polygon: Optional[Sequence[Tuple[int, int]]],
-    ) -> Optional[np.ndarray]:
-        if roi_polygon is None:
-            return None
-
-        polygon = np.array(roi_polygon, dtype=np.int32)
-        if polygon.ndim == 3:
-            polygon = polygon.reshape((-1, 2))
-        return polygon

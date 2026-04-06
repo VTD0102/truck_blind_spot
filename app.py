@@ -59,6 +59,13 @@ def parse_args() -> argparse.Namespace:
         help="Đường dẫn file cấu hình ROI (.json)",
     )
     parser.add_argument(
+        "--roi-profile",
+        type=str,
+        default="front_camera",
+        choices=["front_camera", "rear_camera"],
+        help="ROI profile: 'front_camera' hoặc 'rear_camera'",
+    )
+    parser.add_argument(
         "--classes-config",
         type=str,
         default=DEFAULT_CLASSES,
@@ -143,6 +150,7 @@ def main() -> None:
     pipeline = BlindSpotPipeline(
         weights_path=args.weights,
         roi_config_path=args.roi,
+        roi_profile=args.roi_profile,
         classes_config_path=args.classes_config,
         device=args.device,
         conf_threshold=args.conf_thres,
@@ -162,9 +170,10 @@ def main() -> None:
     last_frame = None
     smoothed_fps = 0.0
 
-    print(f"[INFO] Source  : {args.source}")
-    print(f"[INFO] Weights : {args.weights}")
-    print(f"[INFO] Device  : {args.device or 'auto'}")
+    print(f"[INFO] Source     : {args.source}")
+    print(f"[INFO] Weights    : {args.weights}")
+    print(f"[INFO] ROI profile: {args.roi_profile}")
+    print(f"[INFO] Device     : {args.device or 'auto'}")
     print("[INFO] Phím tắt: [p] Pause  [r] Restart  [q] Thoát")
 
     try:

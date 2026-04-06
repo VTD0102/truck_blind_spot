@@ -29,6 +29,9 @@ class Detection:
     class_name: str
     in_roi: bool = False
     anchor_point: Optional[Tuple[int, int]] = None
+    zone_name: Optional[str] = None
+    risk_level: Optional[str] = None
+
 
 class YOLOv9Detector:
     def __init__(
@@ -100,9 +103,7 @@ class YOLOv9Detector:
         with torch.inference_mode():
             predictions = self.model(tensor, augment=self.augment)
 
-        predictions = (
-            predictions[0][1] if isinstance(predictions[0], list) else predictions[0]
-        )
+        predictions = self._unwrap_predictions(predictions)
         predictions = non_max_suppression(
             predictions,
             self.conf_threshold,
@@ -118,6 +119,7 @@ class YOLOv9Detector:
             return detections
 
         det[:, :4] = scale_boxes(tensor.shape[2:], det[:, :4], original_frame.shape).round()
+
         for *xyxy, confidence, class_id in det.tolist():
             class_index = int(class_id)
             x1, y1, x2, y2 = [int(value) for value in xyxy]
@@ -131,6 +133,28 @@ class YOLOv9Detector:
             )
 
         return detections
+
+    @staticmethod
+    def _unwrap_predictions(predictions):
+        current = predictions
+        for _ in range(3):
+            if isinstance(current, torch.Tensor):
+                return current
+            if isinstance(current, (list, tuple)) and len(current) > 0:
+                if isinstance(current[0], torch.Tensor):
+                    return current[0]
+                current = current[0]
+                continue
+            break
+
+        if isinstance(predictions, (list, tuple)) and len(predictions) > 0:
+            first = predictions[0]
+            if isinstance(first, list) and len(first) > 1:
+                return first[1]
+            if isinstance(first, torch.Tensor):
+                return first
+
+        raise TypeError(f"Unsupported prediction type for NMS: {type(predictions)}")
 
     @staticmethod
     def _resolve_path(path: str) -> str:
