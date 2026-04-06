@@ -184,3 +184,6 @@ cython_debug/
 runs/
 .idea/workspace.xml
 .idea/
+
+# YOLOv9 datasets
+yolov9/data/datasets/
