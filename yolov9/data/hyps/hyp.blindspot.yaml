@@ -1,62 +1,50 @@
 # ============================================================
 # hyp.blindspot.yaml
-# Hyperparameters cho dự án phát hiện điểm mù xe tải.
-# Tối ưu để hoạt động trong mọi thời điểm trong ngày
-# và các điều kiện thời tiết thông thường:
-#   - Ban ngày / ban đêm / ánh sáng yếu
-#   - Trời nắng / mưa nhỏ / sương mờ nhẹ
+# Hyperparameters cho Truck Blind Spot Detection (YOLOv9)
+# Tối ưu cho camera cố định, ROI blind spot, và điều kiện
+# giao thông thực tế: ngày/đêm, mưa nhẹ, ánh sáng yếu.
 # ============================================================
 
 # --- Optimizer & Learning Rate ---
+lr0: 0.01
+lrf: 0.01
+momentum: 0.937
+weight_decay: 0.0005
 
-lr0: 0.01        # learning rate ban đầu (tốc độ cập nhật trọng số)
-lrf: 0.01        # learning rate cuối cùng = lr0 * lrf (lrf=0.01 => lr giảm nhẹ, ổn định)
-momentum: 0.937  # giúp cập nhật gradient ổn định, tránh dao động
-weight_decay: 0.0005  # phạt trọng số lớn để giảm overfitting
-
-warmup_epochs: 3.0       # số epoch tăng dần learning rate ở giai đoạn đầu
-warmup_momentum: 0.8     # momentum thấp hơn trong warmup để model "thăm dò" trước
-warmup_bias_lr: 0.1      # learning rate riêng cho bias lúc warmup
+warmup_epochs: 3.0
+warmup_momentum: 0.8
+warmup_bias_lr: 0.1
 
 # --- Loss Function Weights ---
-
-box: 7.5     # trọng số cho lỗi tọa độ bounding box (cao -> chú trọng định vị chính xác)
-cls: 0.5     # trọng số cho lỗi phân loại class
-cls_pw: 1.0  # trọng số positive cho BCE loss của class (cân bằng pos/neg sample)
-obj: 0.7     # trọng số cho lỗi objectness (có object hay không)
-obj_pw: 1.0  # trọng số positive cho BCE loss của objectness
-dfl: 1.5     # trọng số Distribution Focal Loss — YOLOv9 dùng để refine tọa độ bbox
+box: 7.5
+cls: 0.5
+cls_pw: 1.0
+obj: 0.7
+obj_pw: 1.0
+dfl: 1.5
 
 # --- Anchor & IoU Training ---
+iou_t: 0.20
+anchor_t: 5.0
+fl_gamma: 0.0
 
-iou_t: 0.20     # ngưỡng IoU tối thiểu để gán bbox đúng cho anchor
-anchor_t: 5.0   # tỉ lệ cho phép giữa kích thước bbox và anchor (càng lớn càng linh hoạt)
-
-fl_gamma: 0.0   # focal loss gamma (0 = không dùng focal loss; tăng nếu mất cân bằng class nặng)
-
-# --- Color Augmentation (Ánh sáng & Màu sắc) ---
-# Tăng mạnh để model học được sự khác biệt giữa ngày/đêm,
-# nắng chói / trời흐리 / mưa / kính ướt
-
-hsv_h: 0.02    # thay đổi hue ±2% — giả lập ánh đèn vàng/xanh đô thị ban đêm
-hsv_s: 0.7     # thay đổi độ bão hòa ±70% — nắng chói (cao) vs mưa/sương (thấp)
-hsv_v: 0.5     # thay đổi độ sáng ±50% — ban ngày sáng vs ban đêm / kính mờ
+# --- Color Augmentation ---
+hsv_h: 0.015
+hsv_s: 0.5
+hsv_v: 0.4
 
 # --- Geometric Augmentation ---
-
-degrees: 0.0       # không xoay — camera điểm mù xe tải luôn cố định theo phương ngang
-translate: 0.2     # dịch chuyển object ±20% — giả lập object ở cạnh khung hình
-scale: 0.5         # phóng to/thu nhỏ ±50% — xe/người ở xa (nhỏ) lẫn gần (lớn)
-shear: 0.0         # không biến dạng shear — tránh làm sai lệch tỉ lệ xe
-perspective: 0.0   # không biến dạng phối cảnh — góc camera cố định trên xe tải
+degrees: 0.0
+translate: 0.1
+scale: 0.4
+shear: 0.0
+perspective: 0.0
 
 # --- Flip Augmentation ---
-
-flipud: 0.0   # không lật dọc — xe không bao giờ ngược chiều trọng lực
-fliplr: 0.0   # không lật ngang — giữ đúng chiều lưu thông giao thông
+flipud: 0.0
+fliplr: 0.0
 
 # --- YOLO Special Augmentations ---
-
-mosaic: 1.0      # ghép 4 ảnh thành 1 (bật 100%) — datasets dồi dào, tăng đa dạng scene mạnh
-mixup: 0.1       # trộn nhẹ 2 ảnh lại (10%) — giúp model robust hơn với overlap object
-copy_paste: 0.0  # không copy-paste object — tránh tạo scene không thực tế cho giao thông
+mosaic: 0.4
+mixup: 0.0
+copy_paste: 0.0
