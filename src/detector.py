@@ -137,7 +137,7 @@ class YOLOv9Detector:
     @staticmethod
     def _unwrap_predictions(predictions):
         current = predictions
-        for _ in range(3):
+        for _ in range(4):
             if isinstance(current, torch.Tensor):
                 return current
             if isinstance(current, (list, tuple)) and len(current) > 0:
@@ -149,7 +149,7 @@ class YOLOv9Detector:
 
         if isinstance(predictions, (list, tuple)) and len(predictions) > 0:
             first = predictions[0]
-            if isinstance(first, list) and len(first) > 1:
+            if isinstance(first, list) and len(first) > 1 and isinstance(first[1], torch.Tensor):
                 return first[1]
             if isinstance(first, torch.Tensor):
                 return first

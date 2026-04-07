@@ -58,7 +58,7 @@ class BlindSpotVisualizer:
                     prefix = f"{prefix} [{risk_level}]"
                 label = f"{prefix} | {label}"
 
-            self._draw_label(output, label, (x1, max(20, y1 - 10)), color)
+            self._draw_label(output, label, (x1, max(24, y1 - 10)), color)
 
             if detection.anchor_point is not None:
                 cv2.circle(output, detection.anchor_point, 5, color, -1)
@@ -71,21 +71,18 @@ class BlindSpotVisualizer:
     def _draw_roi_zones(self, frame: np.ndarray, roi_zones: Sequence[ROIZone]) -> None:
         overlay = frame.copy()
 
-        # Bước 1: vẽ fill vào overlay để blend alpha
         for zone in roi_zones:
             polygon = np.array(zone.points, dtype=np.int32)
             cv2.fillPoly(overlay, [polygon], zone.color)
 
-        # Bước 2: blend fill nhẹ (roi_alpha) lên frame gốc
         cv2.addWeighted(overlay, self.roi_alpha, frame, 1.0 - self.roi_alpha, 0, frame)
 
-        # Bước 3: vẽ viền và label SAU blend để luôn hiển thị rõ nét (không bị mờ)
         for zone in roi_zones:
             polygon = np.array(zone.points, dtype=np.int32)
             cv2.polylines(frame, [polygon], True, zone.color, 2)
 
             anchor = polygon[0]
-            label_pos = (int(anchor[0]), max(20, int(anchor[1]) - 10))
+            label_pos = (int(anchor[0]), max(24, int(anchor[1]) - 10))
             text = f"{zone.name} [{zone.risk_level}]"
             self._draw_label(frame, text, label_pos, zone.color)
 

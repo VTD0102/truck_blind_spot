@@ -47,6 +47,9 @@ class BlindSpotPipeline:
         self.visualizer = BlindSpotVisualizer()
 
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, List[Detection]]:
+        frame_height, frame_width = frame.shape[:2]
+        self.roi.update_frame_size(frame_width, frame_height)
+
         detections = self.detector.predict(frame)
 
         for detection in detections:
@@ -95,6 +98,10 @@ class BlindSpotPipeline:
 
         writer = self._create_writer(cap, output_path)
         window_name = "Blind Spot Inference"
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"[INFO] Video frame size: {width}x{height}")
 
         try:
             while True:

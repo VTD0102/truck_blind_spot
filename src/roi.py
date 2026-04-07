@@ -24,10 +24,18 @@ class ROIZone:
             raise ValueError(f"ROI zone '{name}' must contain at least 3 points.")
 
         self.name = name
-        self.points: List[Point] = [(int(p[0]), int(p[1])) for p in polygon]
+        self.base_points: List[Point] = [(int(p[0]), int(p[1])) for p in polygon]
+        self.points: List[Point] = list(self.base_points)
         self.polygon = np.array(self.points, dtype=np.int32).reshape((-1, 1, 2))
         self.color: Color = tuple(int(c) for c in color)
         self.risk_level = str(risk_level)
+
+    def scale(self, scale_x: float, scale_y: float) -> None:
+        self.points = [
+            (int(round(x * scale_x)), int(round(y * scale_y)))
+            for x, y in self.base_points
+        ]
+        self.polygon = np.array(self.points, dtype=np.int32).reshape((-1, 1, 2))
 
     def contains_point(self, point: Point) -> bool:
         x, y = point
@@ -49,11 +57,18 @@ class MultiPolygonROI:
             )
 
         profile = profiles[profile_name]
-        self.image_size = profile.get("image_size")
+        image_size = profile.get("image_size")
+        if not image_size:
+            raise ValueError(f"ROI profile '{profile_name}' must define image_size.")
+
+        self.base_width = int(image_size["w"])
+        self.base_height = int(image_size["h"])
+        self.current_width = self.base_width
+        self.current_height = self.base_height
         self.check_point = profile.get("check_point", "bbox_bottom_center")
 
         zones_config = profile.get("zones")
-        if not zones_config or len(zones_config) == 0:
+        if not zones_config:
             raise ValueError(f"ROI profile '{profile_name}' must contain at least one zone.")
 
         self.zones: List[ROIZone] = [
@@ -65,6 +80,22 @@ class MultiPolygonROI:
             )
             for zone in zones_config
         ]
+
+    def update_frame_size(self, frame_width: int, frame_height: int) -> None:
+        if frame_width <= 0 or frame_height <= 0:
+            raise ValueError("Invalid frame size.")
+
+        if frame_width == self.current_width and frame_height == self.current_height:
+            return
+
+        scale_x = frame_width / self.base_width
+        scale_y = frame_height / self.base_height
+
+        for zone in self.zones:
+            zone.scale(scale_x, scale_y)
+
+        self.current_width = frame_width
+        self.current_height = frame_height
 
     def get_reference_point(self, bbox: BBox) -> Point:
         x1, y1, x2, y2 = bbox
@@ -89,7 +120,10 @@ class MultiPolygonROI:
             "WARNING": 1,
             "LOW": 0,
         }
-        matched_zones.sort(key=lambda z: priority.get(z.risk_level.upper(), 0), reverse=True)
+        matched_zones.sort(
+            key=lambda z: priority.get(z.risk_level.upper(), 0),
+            reverse=True,
+        )
         return matched_zones[0]
 
     def contains_bbox(self, bbox: BBox) -> bool:
