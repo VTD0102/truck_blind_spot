@@ -1,0 +1,15 @@
+# danh sách các class cũ lấy trong dataset 100k ảnh 
+train: train/images
+val: valid/images
+test: test/images
+names:
+  0: bike
+  1: bus
+  2: car
+  3: motor
+  4: person
+  5: rider
+  6: traffic light
+  7: traffic sign
+  8: train
+  9: truck

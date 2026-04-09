@@ -9,11 +9,11 @@ import numpy as np
 
 try:
     from .detector import Detection, YOLOv9Detector
-    from .roi import PolygonROI
+    from .roi import MultiPolygonROI
     from .visualize import BlindSpotVisualizer
 except ImportError:
     from detector import Detection, YOLOv9Detector
-    from roi import PolygonROI
+    from roi import MultiPolygonROI
     from visualize import BlindSpotVisualizer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +25,7 @@ class BlindSpotPipeline:
         self,
         weights_path: str = "weights/best_small.pt",
         roi_config_path: str = "configs/roi.json",
+        roi_profile: str = "front_camera",
         classes_config_path: str = "configs/classes.yaml",
         device: str = "",
         image_size: Tuple[int, int] = (640, 640),
@@ -39,19 +40,30 @@ class BlindSpotPipeline:
             conf_threshold=conf_threshold,
             iou_threshold=iou_threshold,
         )
-        self.roi = PolygonROI(self._resolve_path(roi_config_path))
+        self.roi = MultiPolygonROI(
+            roi_config_path=self._resolve_path(roi_config_path),
+            profile_name=roi_profile,
+        )
         self.visualizer = BlindSpotVisualizer()
 
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, List[Detection]]:
+        frame_height, frame_width = frame.shape[:2]
+        self.roi.update_frame_size(frame_width, frame_height)
+
         detections = self.detector.predict(frame)
+
         for detection in detections:
             detection.anchor_point = self.roi.get_reference_point(detection.bbox)
-            detection.in_roi = self.roi.contains_point(detection.anchor_point)
+            zone = self.roi.get_zone(detection.anchor_point)
+
+            detection.in_roi = zone is not None
+            detection.zone_name = zone.name if zone is not None else None
+            detection.risk_level = zone.risk_level if zone is not None else None
 
         annotated_frame = self.visualizer.draw(
             frame=frame,
             detections=detections,
-            roi_polygon=self.roi.points,
+            roi_zones=self.roi.zones,
             copy=True,
         )
         return annotated_frame, detections
@@ -68,7 +80,9 @@ class BlindSpotPipeline:
 
         annotated_frame, detections = self.process_frame(frame)
         if output_path:
-            cv2.imwrite(self._resolve_path(output_path), annotated_frame)
+            output_resolved = self._resolve_path(output_path)
+            Path(output_resolved).parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(output_resolved, annotated_frame)
         return annotated_frame, detections
 
     def run_video(
@@ -84,6 +98,10 @@ class BlindSpotPipeline:
 
         writer = self._create_writer(cap, output_path)
         window_name = "Blind Spot Inference"
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"[INFO] Video frame size: {width}x{height}")
 
         try:
             while True:
@@ -141,6 +159,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weights", type=str, default="weights/best_small.pt", help="Path to YOLOv9 weights")
     parser.add_argument("--roi", type=str, default="configs/roi.json", help="Path to ROI json config")
     parser.add_argument(
+        "--roi-profile",
+        type=str,
+        default="front_camera",
+        choices=["front_camera", "rear_camera"],
+        help="ROI profile to use",
+    )
+    parser.add_argument(
         "--classes-config",
         type=str,
         default="configs/classes.yaml",
@@ -160,6 +185,7 @@ def main() -> None:
     pipeline = BlindSpotPipeline(
         weights_path=args.weights,
         roi_config_path=args.roi,
+        roi_profile=args.roi_profile,
         classes_config_path=args.classes_config,
         device=args.device,
         image_size=tuple(args.imgsz),
@@ -183,6 +209,9 @@ def main() -> None:
                     "class_id": detection.class_id,
                     "class_name": detection.class_name,
                     "in_roi": detection.in_roi,
+                    "zone_name": detection.zone_name,
+                    "risk_level": detection.risk_level,
+                    "anchor_point": detection.anchor_point,
                 }
             )
         return
