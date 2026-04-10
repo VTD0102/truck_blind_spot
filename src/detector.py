@@ -9,11 +9,9 @@ import numpy as np
 import torch
 import yaml
 
-# Thư mục gốc của dự án
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 YOLO_ROOT = PROJECT_ROOT / "yolov9"
 
-# Thêm đường dẫn YOLOv9 vào sys.path để import các module nội bộ của nó
 if str(YOLO_ROOT) not in sys.path:
     sys.path.append(str(YOLO_ROOT))
 
@@ -25,17 +23,17 @@ from utils.torch_utils import select_device
 
 @dataclass
 class Detection:
-    """Đại diện cho một đối tượng phát hiện được."""
-    bbox: Tuple[int, int, int, int]              # Tọa độ bounding box (x1, y1, x2, y2)
-    confidence: float                            # Độ tin cậy (từ 0.0 đến 1.0)
-    class_id: int                                # ID của lớp đối tượng
-    class_name: str                              # Tên lớp
-    in_roi: bool = False                         # Có nằm trong ROI hay không
-    anchor_point: Optional[Tuple[int, int]] = None  # Điểm tham chiếu của bounding box
+    bbox: Tuple[int, int, int, int]
+    confidence: float
+    class_id: int
+    class_name: str
+    in_roi: bool = False
+    anchor_point: Optional[Tuple[int, int]] = None
+    zone_name: Optional[str] = None
+    risk_level: Optional[str] = None
 
 
 class YOLOv9Detector:
-    """Lớp bao bọc (wrapper) cho mô hình YOLOv9."""
     def __init__(
         self,
         weights_path: str = "weights/best_small.pt",
@@ -62,10 +60,7 @@ class YOLOv9Detector:
         self.augment = augment
         self.agnostic_nms = agnostic_nms
 
-        # Tải tên các lớp từ tập tin yaml
         self.class_names = self._load_class_names(self.classes_config_path)
-        
-        # Nạp mô hình YOLOv9 backend
         self.model = DetectMultiBackend(
             self.weights_path,
             device=self.device,
@@ -81,45 +76,34 @@ class YOLOv9Detector:
         if not self.class_names:
             self.class_names = self._normalize_model_names(self.model.names)
 
-        # Chạy warmup cho model
         self.model.warmup(
             imgsz=(1 if self.pt or self.model.triton else 1, 3, *self.imgsz)
         )
 
     def predict(self, frame: np.ndarray) -> List[Detection]:
-        """Hàm dự đoán nhãn trên một khung hình ảnh."""
         if frame is None or frame.size == 0:
-            raise ValueError("Khung hình đầu vào rỗng (empty).")
+            raise ValueError("Input frame is empty.")
 
         original_frame = frame.copy()
-        
-        # Tiền xử lý khung hình: resize kích thước và thêm viền (letterbox)
         image = letterbox(
             original_frame,
             new_shape=self.imgsz,
             stride=self.stride,
             auto=self.pt,
         )[0]
-        # Chuyển đổi định dạng từ HWC (OpenCV ảnh màu BGR) sang CHW (PyTorch RGB/BGR tùy mô hình)
         image = image.transpose((2, 0, 1))[::-1]
         image = np.ascontiguousarray(image)
 
-        # Đẩy dữ liệu lên GPU/CPU
         tensor = torch.from_numpy(image).to(self.model.device)
         tensor = tensor.half() if self.fp16 else tensor.float()
-        tensor /= 255.0  # Chuẩn hóa về [0, 1]
+        tensor /= 255.0
         if tensor.ndim == 3:
             tensor = tensor.unsqueeze(0)
 
-        # Thực hiện suy luận (inference)
         with torch.inference_mode():
             predictions = self.model(tensor, augment=self.augment)
 
-        predictions = (
-            predictions[0][1] if isinstance(predictions[0], list) else predictions[0]
-        )
-        
-        # Áp dụng triệt tiêu non-maxima (NMS) để loại bỏ bbox trùng lặp
+        predictions = self._unwrap_predictions(predictions)
         predictions = non_max_suppression(
             predictions,
             self.conf_threshold,
@@ -134,8 +118,8 @@ class YOLOv9Detector:
         if not len(det):
             return detections
 
-        # Đưa các bbox về tọa độ của ảnh gốc
         det[:, :4] = scale_boxes(tensor.shape[2:], det[:, :4], original_frame.shape).round()
+
         for *xyxy, confidence, class_id in det.tolist():
             class_index = int(class_id)
             x1, y1, x2, y2 = [int(value) for value in xyxy]
@@ -151,8 +135,29 @@ class YOLOv9Detector:
         return detections
 
     @staticmethod
+    def _unwrap_predictions(predictions):
+        current = predictions
+        for _ in range(4):
+            if isinstance(current, torch.Tensor):
+                return current
+            if isinstance(current, (list, tuple)) and len(current) > 0:
+                if isinstance(current[0], torch.Tensor):
+                    return current[0]
+                current = current[0]
+                continue
+            break
+
+        if isinstance(predictions, (list, tuple)) and len(predictions) > 0:
+            first = predictions[0]
+            if isinstance(first, list) and len(first) > 1 and isinstance(first[1], torch.Tensor):
+                return first[1]
+            if isinstance(first, torch.Tensor):
+                return first
+
+        raise TypeError(f"Unsupported prediction type for NMS: {type(predictions)}")
+
+    @staticmethod
     def _resolve_path(path: str) -> str:
-        """Xử lý đường dẫn tuyệt đối/tương đối."""
         path_obj = Path(path)
         if not path_obj.is_absolute():
             path_obj = PROJECT_ROOT / path_obj
@@ -160,7 +165,6 @@ class YOLOv9Detector:
 
     @staticmethod
     def _normalize_model_names(model_names: object) -> Dict[int, str]:
-        """Chuẩn hóa dictionary lưu tên của class."""
         if isinstance(model_names, dict):
             return {int(key): str(value) for key, value in model_names.items()}
         if isinstance(model_names, (list, tuple)):
@@ -169,7 +173,6 @@ class YOLOv9Detector:
 
     @staticmethod
     def _load_class_names(classes_config_path: str) -> Dict[int, str]:
-        """Đọc và lấy tên class từ tệp cấu hình yaml."""
         config_path = Path(classes_config_path)
         if not config_path.exists():
             return {}
