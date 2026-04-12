@@ -187,6 +187,7 @@ runs/
 
 # YOLOv9 datasets
 yolov9/data/datasets/
+yolov9/data/datasets_2/
 
 # Compressed files
 *.zip
