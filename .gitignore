@@ -180,7 +180,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-*.pt
+# *.pt
 runs/
 .idea/workspace.xml
 .idea/
