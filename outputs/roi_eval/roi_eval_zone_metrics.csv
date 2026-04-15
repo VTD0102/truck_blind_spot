@@ -1,0 +1,5 @@
+zone,gt,tp,fn,recall
+forward_danger_zone,4632,2646,1986,0.5712
+left_blind_spot,2832,1712,1120,0.6045
+near_cabin_zone,2753,2148,605,0.7802
+right_blind_spot,2151,1292,859,0.6007
