@@ -15,8 +15,8 @@ from src.pipeline import BlindSpotPipeline
 PROJECT_ROOT = Path(__file__).resolve().parent
 WINDOW_NAME = "YOLOv9 Blind Spot Demo"
 
-DEFAULT_SOURCE = str(PROJECT_ROOT / "assets" / "videos" / "demo3.mp4")
-DEFAULT_WEIGHTS = "weights/best_small.pt"
+DEFAULT_SOURCE = str(PROJECT_ROOT / "assets" / "videos" / "demo4.mp4")
+DEFAULT_WEIGHTS = "weights/best_6k.pt"
 DEFAULT_ROI = "configs/roi.json"
 DEFAULT_CLASSES = "configs/classes.yaml"
 
