@@ -20,7 +20,7 @@ class TrackDetection(Protocol):
 
 
 class TrackManager:
-    """Manage track lifecycle using greedy IoU matching."""
+    """Manage track lifecycle using IoU-based assignment."""
 
     def __init__(
         self,
