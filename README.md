@@ -251,20 +251,4 @@ Các cải tiến tiềm năng:
 - ✅ Web interface / REST API
 - ✅ Đa ROI (các vùng điểm mù khác nhau)
 
-## 📄 License
 
-Dự án này được tạo cho mục đích học tập và nghiên cứu.
-
-## 👥 Tác Giả
-
-Project được phát triển bởi Taitu và team VTD0102.
-
-## 📧 Liên Hệ & Hỗ Trợ
-
-Nếu có câu hỏi hoặc phát hiện issue:
-- Tạo GitHub Issue
-- Hoặc liên hệ trực tiếp qua email/Slack
-
----
-
-**Happy Detection! 🎯**
