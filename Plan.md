@@ -54,8 +54,8 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Việc cần làm (polish)**:
 - [ ] Xác nhận `process_noise` và `measurement_noise` mặc định bằng cách chạy với video thực tế
 - [ ] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — hiện tại TrackManager tính velocity thủ công từ anchor points thay vì dùng Kalman state
-- [ ] Thêm docstring mô tả đơn vị (pixels/frame) và giả thiết mô hình
-- [ ] Kiểm tra edge case: `initiate()` với bbox rất nhỏ (w=0 hoặc h=0)
+- [x] Thêm docstring mô tả đơn vị (pixels/frame) và giả thiết mô hình — đã có docstring trong class
+- [x] Kiểm tra edge case: `initiate()` với bbox rất nhỏ — `_clamp_state_size()` xử lý `w,h < 1e-6`
 
 **Không cần thay đổi**: Kiến trúc matrix (F, H, Q, R) đã đúng.
 
@@ -70,7 +70,7 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Việc cần làm (polish)**:
 - [ ] Thêm optional `distance_metric` parameter để sau này có thể swap IoU với Mahalanobis distance (khi tích hợp Kalman prediction)
 - [ ] Thêm unit test cho edge cases: 0 tracks + N detections, N tracks + 0 detections, perfect overlap, zero overlap
-- [ ] Thêm docstring giải thích cost matrix construction
+- [x] Thêm docstring giải thích cost matrix construction — đã có trong `matching.py`
 
 **Không cần thay đổi**: Logic `linear_sum_assignment` + IoU gating đã đúng.
 
@@ -111,13 +111,13 @@ Frame N:
 
 **Việc cần làm**:
 - [ ] Code review toàn bộ `src/tracking/` module
-- [ ] Đảm bảo `src/tracking/__init__.py` export đầy đủ: `Track`, `TrackManager`, `BoundingBoxKalmanFilter`, `match_tracks_detections`
-- [ ] Kiểm tra `init.py` (hiện đang là `init.py` thay vì `__init__.py` — cần kiểm tra tên file)
+- [x] Đảm bảo `src/tracking/__init__.py` export đầy đủ — `types.py` hiện re-export từ `common`  
+- [ ] ⚠️ File `src/tracking/init.py` vẫn còn tồn tại (tên sai, cần kiểm tra)
 - [ ] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
-  - Kalman filter: `initiate → predict → update` cycle
-  - Hungarian: edge cases (0 tracks, 0 detections, no overlap)
-  - TrackManager: track birth confirmation (min_hits), track death (max_misses)
-  - Full integration: 3 detections → track creation → next frame match
+  - [ ] Kalman filter: `initiate → predict → update` cycle
+  - [ ] Hungarian: edge cases (0 tracks, 0 detections, no overlap)
+  - [ ] TrackManager: track birth confirmation (min_hits), track death (max_misses)
+  - [ ] Full integration: 3 detections → track creation → next frame match
 - [ ] Update `CLAUDE.md` thêm section về `src/tracking/` module
 - [ ] Chạy `python -m pytest tests/ -v` để validate
 
@@ -128,7 +128,7 @@ Frame N:
 **File**: `src/pipeline.py` — cần update `BlindSpotPipeline`
 
 **Việc cần làm**:
-- [ ] Import `TrackManager` vào `pipeline.py`
+- [ ] Import `TrackManager` vào `pipeline.py` — hiện tại chưa có
 - [ ] Thêm `TrackManager` instance vào `BlindSpotPipeline.__init__()`
 - [ ] Cập nhật `process_frame()`: sau khi có `detections`, gọi `track_manager.update(detections)`
 - [ ] `process_frame()` trả về `(annotated_frame, detections, active_tracks)` hoặc embed track info vào detections
