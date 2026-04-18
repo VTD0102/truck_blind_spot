@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Protocol, Sequence
 
 from .matching import match_tracks_detections
-from .types import Point, Track
+from .types import Point, Track, TrackStatus
 
 
 class TrackDetection(Protocol):
@@ -70,6 +70,11 @@ class TrackManager:
             track.age += 1
 
     def _create_track(self, detection: TrackDetection) -> Track:
+        status = (
+            TrackStatus.CONFIRMED
+            if self.min_hits <= 1
+            else TrackStatus.TENTATIVE
+        )
         track = Track(
             track_id=self._next_track_id,
             bbox=detection.bbox,
@@ -80,6 +85,7 @@ class TrackManager:
             hits=1,
             misses=0,
             is_confirmed=self.min_hits <= 1,
+            status=status,
             anchor_point=detection.anchor_point,
             in_roi=detection.in_roi,
             zone_name=detection.zone_name,
@@ -107,6 +113,11 @@ class TrackManager:
         track.hits += 1
         track.misses = 0
         track.is_confirmed = track.hits >= self.min_hits
+        track.status = (
+            TrackStatus.CONFIRMED
+            if track.is_confirmed
+            else TrackStatus.TENTATIVE
+        )
 
         if previous_anchor is not None and detection.anchor_point is not None:
             dx = float(detection.anchor_point[0] - previous_anchor[0])
@@ -117,6 +128,7 @@ class TrackManager:
 
     def _mark_missed(self, track: Track) -> None:
         track.misses += 1
+        track.status = TrackStatus.LOST
 
     def _prune_dead_tracks(self) -> None:
         self.tracks = [

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 import yaml
+
+try:
+    from .common.models import Detection
+except ImportError:
+    from common.models import Detection  # type: ignore
 
 # Thư mục gốc của dự án
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -21,19 +25,6 @@ from models.common import DetectMultiBackend
 from utils.augmentations import letterbox
 from utils.general import check_img_size, non_max_suppression, scale_boxes
 from utils.torch_utils import select_device
-
-
-@dataclass
-class Detection:
-    bbox: Tuple[int, int, int, int]
-    confidence: float
-    class_id: int
-    class_name: str
-    in_roi: bool = False
-    anchor_point: Optional[Tuple[int, int]] = None
-    zone_name: Optional[str] = None
-    risk_level: Optional[str] = None
-
 
 class YOLOv9Detector:
     """Lớp bao bọc (wrapper) cho mô hình YOLOv9."""

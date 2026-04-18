@@ -191,3 +191,4 @@ yolov9/data/datasets_2/
 
 # Compressed files
 *.zip
+.gitnexus

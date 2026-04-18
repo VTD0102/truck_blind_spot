@@ -23,6 +23,23 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Kết luận**: Toàn bộ Phase 1 đã được code sẵn. Nhiệm vụ còn lại là:
 1. **Phase 1**: Polish, integrate Kalman với TrackManager, viết unit tests đầy đủ và docs.
 2. **Phase 2**: Xây dựng `MotionPredictor` module hoàn toàn mới.
+3. **Phase 3**: Tích hợp hệ thống (API, Database, Dashboard).
+
+---
+
+## Phase 0: Shared Types & Foundation
+*Mục đích: Định nghĩa ngôn ngữ chung cho toàn bộ hệ thống để đảm bảo tính nhất quán giữa các module.*
+
+- [x] **Tạo TypeScript/Python type definitions cho**:
+    - `Detection`: bounding box, class, confidence, anchor_point.
+    - `Track`: ID, position, velocity, history.
+    - `KalmanState`: state vector (8D), covariance.
+    - `MotionPrediction`: predicted position, confidence, timestamp.
+    - `AlertEvent`: type, severity, location, timestamp.
+- [x] **Định nghĩa enums**: cho track status, alert levels.
+- [x] **Tạo data transfer objects (DTOs)**.
+- [x] **Tài liệu hóa schema** của tất cả các types.
+- [x] **Ensure consistency** giữa các module.
 
 ---
 
@@ -35,9 +52,8 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Hiện trạng**: `BoundingBoxKalmanFilter` đã hoàn thiện với 8D state vector `[cx, cy, w, h, vx, vy, vw, vh]`.
 
 **Việc cần làm (polish)**:
-- ✅ ~~Xác nhận `process_noise` và `measurement_noise` mặc định~~ — `1e-2` / `1e-1` đã có sẵn, configurable qua constructor
-- ✅ ~~Kiến trúc matrix F, H, Q, R~~ — đã đúng, 8D state `[cx,cy,w,h,vx,vy,vw,vh]`, InitCovariance diagonal
-- [ ] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector
+- [ ] Xác nhận `process_noise` và `measurement_noise` mặc định bằng cách chạy với video thực tế
+- [ ] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — hiện tại TrackManager tính velocity thủ công từ anchor points thay vì dùng Kalman state
 - [ ] Thêm docstring mô tả đơn vị (pixels/frame) và giả thiết mô hình
 - [ ] Kiểm tra edge case: `initiate()` với bbox rất nhỏ (w=0 hoặc h=0)
 
@@ -52,10 +68,8 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Hiện trạng**: `match_tracks_detections()` dùng `scipy.optimize.linear_sum_assignment` với IoU cost matrix. Đã hoàn thiện.
 
 **Việc cần làm (polish)**:
-- ✅ ~~`linear_sum_assignment` + IoU gating~~ — đã implement đúng với `scipy.optimize`
-- ✅ ~~Edge case empty inputs~~ — đã handle `if not tracks`, `if not detections` rõ ràng
-- [ ] Thêm optional `distance_metric` parameter để sau này có thể swap IoU với Mahalanobis distance
-- [ ] Thêm unit test cho edge cases: perfect overlap, zero overlap
+- [ ] Thêm optional `distance_metric` parameter để sau này có thể swap IoU với Mahalanobis distance (khi tích hợp Kalman prediction)
+- [ ] Thêm unit test cho edge cases: 0 tracks + N detections, N tracks + 0 detections, perfect overlap, zero overlap
 - [ ] Thêm docstring giải thích cost matrix construction
 
 **Không cần thay đổi**: Logic `linear_sum_assignment` + IoU gating đã đúng.
@@ -69,15 +83,14 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Hiện trạng**: `TrackManager` quản lý lifecycle (birth/update/death) với `iou_threshold`, `max_misses`, `min_hits`. Velocity được tính thủ công từ anchor point delta.
 
 **Việc cần làm (integration)**:
-- ✅ ~~`TrackManager` lifecycle (birth/update/death)~~ — đã có đầy đủ với `iou_threshold`, `max_misses`, `min_hits`
-- ✅ ~~Track `trace` history~~ — `_append_trace()` đã trim đúng theo `max_trace_length`
-- ✅ ~~`Track.velocity` cơ bản~~ — tính từ anchor delta trong `_update_track()` (tạm thời)
 - [ ] Tích hợp `BoundingBoxKalmanFilter` vào `Track`: mỗi track sở hữu một instance Kalman filter riêng
 - [ ] Thêm field `kalman: BoundingBoxKalmanFilter` vào `Track` dataclass trong `types.py`
+  - Dùng `field(default_factory=BoundingBoxKalmanFilter)` hoặc khởi tạo trong `TrackManager._create_track()`
 - [ ] Trong `_create_track()`: gọi `track.kalman.initiate(detection.bbox)`
-- [ ] Trong `_update_track()`: gọi `track.kalman.update(detection.bbox)` → dùng Kalman bbox
-- [ ] Trong `_increment_track_ages()`: gọi `track.kalman.predict()` trước khi matching
-- [ ] Trong matching: truyền Kalman-predicted bbox vào `match_tracks_detections()`
+- [ ] Trong `_update_track()`: gọi `track.kalman.update(detection.bbox)` và dùng Kalman bbox thay vì raw detection bbox
+- [ ] Trong `_increment_track_ages()`: gọi `track.kalman.predict()` để dự đoán next bbox trước khi matching
+- [ ] Trong matching: truyền Kalman-predicted bbox thay vì current bbox vào `match_tracks_detections()`
+- [ ] Lấy `(vx, vy)` từ Kalman state thay vì tính thủ công từ anchor delta
 - [ ] Cập nhật `Track.velocity` từ `kalman.state[4,0]` và `kalman.state[5,0]`
 
 **Ưu tiên**: Đây là task tích hợp quan trọng nhất của Phase 1.
@@ -98,11 +111,11 @@ Frame N:
 
 **Việc cần làm**:
 - [ ] Code review toàn bộ `src/tracking/` module
-- [ ] ⚠️ File hiện tên là `init.py` (không phải `__init__.py`) — cần đổi tên để Python nhận ra package
-- [ ] Cập nhật `init.py` → `__init__.py` và export đầy đủ: `Track`, `TrackManager`, `BoundingBoxKalmanFilter`, `match_tracks_detections`
+- [ ] Đảm bảo `src/tracking/__init__.py` export đầy đủ: `Track`, `TrackManager`, `BoundingBoxKalmanFilter`, `match_tracks_detections`
+- [ ] Kiểm tra `init.py` (hiện đang là `init.py` thay vì `__init__.py` — cần kiểm tra tên file)
 - [ ] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
-  - Kalman filter: `initiate → predict → update` cycle (có smoke test rồi nhưng chưa đầy đủ)
-  - Hungarian: edge cases (no overlap)
+  - Kalman filter: `initiate → predict → update` cycle
+  - Hungarian: edge cases (0 tracks, 0 detections, no overlap)
   - TrackManager: track birth confirmation (min_hits), track death (max_misses)
   - Full integration: 3 detections → track creation → next frame match
 - [ ] Update `CLAUDE.md` thêm section về `src/tracking/` module
@@ -114,11 +127,11 @@ Frame N:
 
 **File**: `src/pipeline.py` — cần update `BlindSpotPipeline`
 
-**Việc cần làm** (pipeline.py hiện chưa import tracking module nào):
+**Việc cần làm**:
 - [ ] Import `TrackManager` vào `pipeline.py`
 - [ ] Thêm `TrackManager` instance vào `BlindSpotPipeline.__init__()`
 - [ ] Cập nhật `process_frame()`: sau khi có `detections`, gọi `track_manager.update(detections)`
-- [ ] `process_frame()` trả về `(annotated_frame, detections, active_tracks)`
+- [ ] `process_frame()` trả về `(annotated_frame, detections, active_tracks)` hoặc embed track info vào detections
 - [ ] Cập nhật `BlindSpotVisualizer.draw()` để hiển thị track ID và velocity vector trên frame
 - [ ] Cập nhật `app.py` CLI để pass track results
 
@@ -311,6 +324,49 @@ class MotionPrediction:
 
 ---
 
+## Phase 3: System Integration (PRIORITY)
+*Mục đích: Tích hợp toàn bộ hệ thống thành một pipeline hoàn chỉnh.*
+
+- [ ] **Kết nối YOLOv9 detector với tracking system**.
+- [ ] **Pipeline flow**:
+    - Input video frames
+    - YOLOv9 inference
+    - Hungarian matching
+    - Kalman filter update
+    - Track management
+    - Motion prediction
+    - Alert generation
+- [ ] **API endpoints** để gửi video/frames.
+- [ ] **Message queue** (nếu cần realtime processing).
+- [ ] **Database integration** (lưu trữ tracks, alerts).
+- [ ] **Dashboard backend** (serve data để visualization).
+- [ ] **Error handling & logging**.
+- [ ] **Performance monitoring**.
+- [ ] **End-to-end testing**.
+
+---
+
+## Phase 4: Mock Data & Validation
+*Mục đích: Tạo dữ liệu giả để testing và development.*
+
+- [ ] **Tạo mock camera frames** (video test data).
+- [ ] **Mock YOLOv9 detection outputs**:
+    - Simulated bounding boxes
+    - Confidence scores
+    - Class predictions
+- [ ] **Mock vehicle trajectories**:
+    - Different speeds (0-100 km/h)
+    - Different paths (straight, turn, stop)
+- [ ] **Mock scenarios**:
+    - Vehicle enters blind spot
+    - Vehicle exits blind spot
+    - Multiple vehicles tracking
+    - False positives/negatives
+- [ ] **Dữ liệu CSV/JSON** cho historical testing.
+- [ ] **Tạo unit test datasets**.
+
+---
+
 ## Cấu Trúc Thư Mục Sau Khi Hoàn Thiện
 
 ```
@@ -346,10 +402,12 @@ tests/
 ```
 1.3-integration  →  1.1-polish  →  1.2-polish  →  1.4-docs+tests  →  1.5-pipeline-integration
         ↓
+Phase 0 (Shared Types)  →  Phase 3 (Integration)  →  Phase 4 (Mock Data)
+        ↓
 2.1-velocity-buffer  →  2.2-extrapolation  →  2.3-full-predictor  →  2.4-docs+tests  →  2.5-full-integration
 ```
 
-**Lý do**: Task 1.3 (Kalman integration vào TrackManager) là dependency của mọi thứ khác — phải làm trước.
+**Lý do**: Task 1.3 (Kalman integration vào TrackManager) là dependency của mọi thứ khác — phải làm trước. Phase 0, 3, 4 có thể triển khai song song hoặc ngay sau khi có infrastructure cơ bản.
 
 ---
 
@@ -371,14 +429,6 @@ python app.py --source assets/videos/demo.mp4 --show
 
 # Record output để validate visually
 python app.py --source assets/videos/demo.mp4 --output outputs/tracked_demo.mp4
-```
-
-### Performance Benchmark
-```bash
-python -c "
-import time, cv2
-# ... benchmark script đo latency từng stage
-"
 ```
 
 ---
