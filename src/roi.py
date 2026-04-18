@@ -35,10 +35,12 @@ class ROIZone:
             (int(round(x * scale_x)), int(round(y * scale_y)))
             for x, y in self.base_points
         ]
+        # Chuyển đổi thành mảng numpy để dùng với OpenCV
         self.polygon = np.array(self.points, dtype=np.int32).reshape((-1, 1, 2))
 
     def contains_point(self, point: Point) -> bool:
         x, y = point
+        # Sử dụng pointPolygonTest của OpenCV (trả về >= 0 nếu nằm trong hoặc trên viền)
         result = cv2.pointPolygonTest(self.polygon, (float(x), float(y)), False)
         return result >= 0
 
@@ -107,6 +109,7 @@ class MultiPolygonROI:
             return (x1, (y1 + y2) // 2)
         if self.check_point == "bbox_right_center":
             return (x2, (y1 + y2) // 2)
+        # Mặc định trả về điểm tâm của bounding box
         return ((x1 + x2) // 2, (y1 + y2) // 2)
 
     def get_zone(self, point: Point) -> Optional[ROIZone]:
@@ -130,8 +133,9 @@ class MultiPolygonROI:
         return self.get_zone(self.get_reference_point(bbox)) is not None
 
     def _load_config(self) -> Dict:
+        """Tải file cấu hình JSON."""
         if not self.roi_config_path.exists():
-            raise FileNotFoundError(f"ROI config not found: {self.roi_config_path}")
+            raise FileNotFoundError(f"Không tìm thấy cấu hình ROI: {self.roi_config_path}")
 
         with self.roi_config_path.open("r", encoding="utf-8") as file:
             return json.load(file)
