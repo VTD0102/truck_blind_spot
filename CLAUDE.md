@@ -142,7 +142,7 @@ See `Plan.md` for the tracking/motion-prediction roadmap:
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **truck_blind_spot** (2113 symbols, 6750 relationships, 178 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **truck_blind_spot** (2257 symbols, 7165 relationships, 190 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

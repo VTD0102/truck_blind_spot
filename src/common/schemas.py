@@ -15,6 +15,7 @@ TYPE_SCHEMAS: Dict[str, SchemaDefinition] = {
         "in_roi": "bool",
         "zone_name": "str | None",
         "risk_level": "str | None",
+        "distance_m": "float | None",
     },
     "Track": {
         "track_id": "int",
@@ -28,6 +29,8 @@ TYPE_SCHEMAS: Dict[str, SchemaDefinition] = {
         "is_confirmed": "bool",
         "status": "TrackStatus",
         "velocity": "tuple[float, float] | None",
+        "distance_m": "float | None",
+        "velocity_buffer": "VelocityBufferLike | None",
         "trace": "list[tuple[int, int]]",
     },
     "KalmanState": {

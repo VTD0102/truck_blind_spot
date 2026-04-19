@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Protocol, Tuple
 
 from .enums import AlertLevel, AlertType, TrackStatus
 
@@ -21,6 +21,22 @@ Covariance8x8 = Tuple[
 ]
 
 
+class VelocityBufferLike(Protocol):
+    """Protocol tối thiểu cho buffer vận tốc gắn với Track."""
+
+    def push(self, point: Point, timestamp: float) -> None:
+        """Thêm mẫu (tọa độ, thời gian) vào buffer."""
+
+    def __len__(self) -> int:
+        """Số mẫu hiện có."""
+
+    def get_velocity(self) -> Optional[Velocity]:
+        """Ước lượng vận tốc hiện tại."""
+
+    def get_smoothed_velocity(self, window: int = 3) -> Optional[Velocity]:
+        """Ước lượng vận tốc có làm mượt."""
+
+
 @dataclass
 class Detection:
     """Object detection output used across detector, ROI, tracking and rendering."""
@@ -33,6 +49,7 @@ class Detection:
     anchor_point: Optional[Point] = None
     zone_name: Optional[str] = None
     risk_level: Optional[str] = None
+    distance_m: Optional[float] = None
 
 
 @dataclass
@@ -52,6 +69,8 @@ class Track:
     status: TrackStatus = TrackStatus.TENTATIVE
 
     velocity: Optional[Velocity] = None
+    velocity_buffer: Optional[VelocityBufferLike] = None
+    distance_m: Optional[float] = None
     in_roi: bool = False
     anchor_point: Optional[Point] = None
     zone_name: Optional[str] = None

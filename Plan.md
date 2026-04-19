@@ -150,11 +150,51 @@ def process_frame(
 
 ## Phase 2: Motion Prediction & Confidence
 
+> **Quyết định thiết kế**: Sử dụng **Relative Tracking** (Hướng 1) — coi xe tải đứng yên tuyệt đối, mọi chuyển động đo được trên pixel là vận tốc tương đối giữa đối tượng và xe tải. Không cần CAN bus, IMU hay GPS. Ego-motion compensation (Hướng 2) sẽ là upgrade tương lai nếu cần.
+
+> **⚠️ Lưu ý quan trọng về Perspective Projection**: Camera là hình chiếu phối cảnh. Một xe chạy đều 40km/h ngoài đời, trên pixel sẽ có vận tốc **không hằng số** — càng gần camera, `vy(pixel)` tăng nhanh tạo "gia tốc ảo". Nếu ngoại suy tuyến tính `x(t) = x0 + vx*t` trên pixel gốc sẽ **sai lệch nghiêm trọng** cho prediction 1-2s. Do đó cần chuyển tọa độ sang BEV trước khi prediction.
+
+### 2.0 — Coordinate Transform (IPM / Bird's-Eye View)
+
+**File mới**: `src/tracking/motion/perspective.py`
+
+**Mục đích**: Chuyển tọa độ pixel sang mặt phẳng BEV (nhìn từ trên xuống) để velocity và extrapolation có tỉ lệ đồng nhất (pixel ≈ mét).
+
+**Nguyên lý**: Inverse Perspective Mapping (IPM) dùng Homography matrix `H` để warp điểm chạm đất (bottom-center của bbox) từ camera view sang top-down view.
+
+```python
+class PerspectiveTransform:
+    def __init__(self, homography_matrix: np.ndarray) -> None:
+        """H: 3x3 matrix, calibrated từ 4 điểm tương ứng trên mặt đất."""
+
+    def pixel_to_bev(self, point: Point) -> Tuple[float, float]:
+        """Chuyển tọa độ pixel (bottom-center) sang BEV (mét hoặc cm)."""
+
+    def bev_to_pixel(self, bev_point: Tuple[float, float]) -> Point:
+        """Chuyển ngược từ BEV sang pixel để vẽ lên frame."""
+
+    @staticmethod
+    def estimate_distance(bbox_height_px: float, focal_length: float, real_height_m: float) -> float:
+        """Ước lượng khoảng cách Z bằng Pinhole model: Z = (f * H_real) / h_pixel."""
+```
+
+**Calibration**: Cần 4 cặp điểm tương ứng (pixel ↔ thực tế) trên mặt đường để tính `H`. Có thể:
+- Đo thủ công từ video gốc (đánh dấu 4 điểm trên mặt đường đã biết khoảng cách)
+- Hoặc ước lượng từ thông số camera (focal length, góc lắp đặt)
+
+**Việc cần làm**:
+- [x] Code `PerspectiveTransform` class với `pixel_to_bev` và `bev_to_pixel`
+- [x] Thêm static method `estimate_distance` bằng Pinhole model
+- [x] Thêm field `distance_m: Optional[float]` vào `Detection` và `Track` dataclass
+- [x] Khởi tạo mock homography matrix dùng cho testing
+
+---
+
 ### 2.1 — Buffer + Velocity Calculation
 
 **File mới**: `src/tracking/motion/velocity_buffer.py`
 
-**Mục đích**: Duy trì rolling buffer lịch sử position để tính velocity và acceleration chính xác hơn Kalman state đơn thuần (dùng cho prediction dài hơn 1 frame).
+**Mục đích**: Duy trì rolling buffer lịch sử position **trên BEV space** để tính velocity và acceleration chính xác.
 
 **Class**: `VelocityBuffer`
 
@@ -163,11 +203,11 @@ def process_frame(
 class VelocityBuffer:
     max_size: int = 10          # lưu 10 frames gần nhất
     timestamps: deque[float]    # epoch time mỗi frame
-    positions: deque[Point]     # anchor_point mỗi frame
+    positions: deque[Point]     # BEV-transformed positions (nếu có H) hoặc pixel fallback
 
     def push(self, point: Point, timestamp: float) -> None
-    def get_velocity(self) -> Optional[Velocity]        # pixels/second, dùng linear regression
-    def get_acceleration(self) -> Optional[Velocity]    # pixels/second^2
+    def get_velocity(self) -> Optional[Velocity]        # units/second (BEV: m/s, pixel: px/s)
+    def get_acceleration(self) -> Optional[Velocity]    # units/second^2
     def get_smoothed_velocity(self, window: int = 3) -> Optional[Velocity]  # moving average
 ```
 
@@ -177,11 +217,15 @@ class VelocityBuffer:
 - Acceleration = rate of change of velocity qua các cặp consecutive windows
 - Smoothing: exponential moving average với `alpha=0.7` để giảm noise
 - Xử lý edge cases: buffer chưa đủ points (cần ≥ 2 để tính velocity, ≥ 3 cho acceleration)
+- **Nếu có Homography**: push BEV-transformed point → velocity tính bằng m/s
+- **Nếu không có Homography (fallback)**: push raw pixel → velocity tính bằng px/s (chấp nhận sai lệch)
 
-**Tích hợp với `Track`**:
-- Thêm field `velocity_buffer: VelocityBuffer` vào `Track` dataclass
-- `TrackManager._update_track()` gọi `track.velocity_buffer.push(anchor_point, current_time)`
-- Velocity từ buffer override velocity từ Kalman state khi buffer đủ dữ liệu (≥ 5 frames)
+**Việc cần làm**:
+- [x] Code `VelocityBuffer` class sử dụng `deque`
+- [x] Implement linear regression (`get_velocity`) và quadratic fit (`get_acceleration`)
+- [x] Integrate `VelocityBuffer` vào `Track` dataclass
+- [x] Cập nhật `TrackManager._update_track()` để tự động gọi `track.velocity_buffer.push(...)`
+- [x] Thay thế Kalman velocity bằng buffer velocity nếu buffer đủ dữ liệu (≥ 5 frames)
 
 ---
 
@@ -189,21 +233,24 @@ class VelocityBuffer:
 
 **File mới**: `src/tracking/motion/extrapolator.py`
 
-**Mục đích**: Dự đoán vị trí tương lai dựa trên velocity + acceleration, kèm confidence score.
+**Mục đích**: Dự đoán vị trí tương lai **trên BEV space** dựa trên velocity + acceleration, kèm confidence score.
 
 **Class**: `TrajectoryExtrapolator`
 
 ```python
 class TrajectoryExtrapolator:
+    def __init__(self, perspective_transform: Optional[PerspectiveTransform] = None):
+        """Nếu có transform, extrapolate trên BEV rồi chuyển ngược về pixel."""
+
     def extrapolate(
         self,
-        current_position: Point,
-        velocity: Velocity,          # pixels/second
-        acceleration: Velocity,      # pixels/second^2
+        current_position: Point,     # BEV hoặc pixel
+        velocity: Velocity,          # BEV: m/s, pixel: px/s
+        acceleration: Velocity,      # BEV: m/s^2, pixel: px/s^2
         dt_seconds: float,           # thời gian dự đoán phía trước
     ) -> Point:
-        # x(t) = x0 + vx*t + 0.5*ax*t^2
-        # y(t) = y0 + vy*t + 0.5*ay*t^2
+        # Trên BEV: x(t) = x0 + vx*t + 0.5*ax*t^2 ← CHÍNH XÁC vì tỉ lệ đồng nhất
+        # Trên pixel gốc: công thức này chỉ là xấp xỉ (sai lệch tăng theo horizon)
 
     def compute_confidence(
         self,
@@ -211,6 +258,8 @@ class TrajectoryExtrapolator:
         prediction_horizon_s: float,
     ) -> float:                      # [0.0, 1.0]
 ```
+
+> **Lưu ý**: Khi không có Homography (chưa calibrate camera), hệ thống vẫn chạy được nhưng prediction sẽ kém chính xác cho horizon > 0.5s. Đây là tradeoff có chủ đích cho MVP.
 
 **Confidence score formula** — tổng hợp từ 3 thành phần:
 ```
@@ -225,6 +274,12 @@ motion_smoothness     = 1 / (1 + velocity_variance)      # lower variance = high
 
 - Áp dụng time-decay: `confidence *= exp(-lambda * dt)` — confidence giảm dần theo horizon
 - Threshold alert: `confidence < 0.4` → LOW risk, `< 0.7` → MEDIUM, `>= 0.7` → HIGH (nếu in ROI)
+
+**Việc cần làm**:
+- [x] Code `TrajectoryExtrapolator` class
+- [x] Implement logic nội suy x(t) = x0 + vx*t + 0.5*ax*t^2
+- [x] Xây dựng hàm tính `confidence` với kết hợp tracking, consistency, smoothness, và decay
+- [x] Cập nhật `extrapolate()` để gọi hàm warp trên `PerspectiveTransform` nếu được truyền vào (BEV transform)
 
 ---
 
@@ -279,6 +334,13 @@ class MotionPrediction:
 - Direction consistency check: sudden 90° direction change trong 2 frames → decreased confidence
 - Bounding box size consistency: rapid size change → object may have been lost/reassigned
 
+**Việc cần làm**:
+- [ ] Code `MotionPredictor` wrapper
+- [ ] Định nghĩa `MotionPrediction` và `PredictedPoint` dataclass
+- [ ] Cài đặt `predict_trajectory()` nội suy quỹ đạo ở `0.5s, 1.0s, 2.0s`
+- [ ] Thêm logic motion validation (sanity check cho max velocity/direction)
+- [ ] Thêm custom alert generation rules logic cho ROI zone
+
 ---
 
 ### 2.4 — Final Polish & Docs (Phase 2)
@@ -289,11 +351,12 @@ class MotionPrediction:
   - `max_size` của buffer: test 5 vs 10 vs 15 frames
   - `prediction_horizons_s`: kiểm tra 0.5s, 1.0s, 2.0s
   - `alert_confidence_threshold`: chỉnh từ 0.4 → 0.7 tùy false positive rate
-- [ ] Viết unit tests cho `VelocityBuffer`, `TrajectoryExtrapolator`, `MotionPredictor`
+- [x] Viết unit tests cho `VelocityBuffer`, `TrajectoryExtrapolator`
+- [ ] Viết unit tests cho `MotionPredictor`
   - Test với constant velocity motion → verify linear extrapolation
   - Test với accelerating motion → verify quadratic extrapolation
   - Test confidence decay với increasing prediction horizon
-- [ ] Viết docstrings cho tất cả public methods
+- [x] Viết docstrings cho tất cả public methods trong VelocityBuffer và Extrapolator
 - [ ] Update `CLAUDE.md` với section Phase 2
 
 ---
@@ -375,6 +438,11 @@ src/
 ├── roi.py                   ✅ (không đổi)
 ├── visualize.py             🔶 update: hiển thị tracks, predictions
 ├── pipeline.py              🔶 update: tích hợp TrackManager + MotionPredictor
+├── common/                  ✅ Phase 0 hoàn thiện
+│   ├── models.py            ✅ Detection, Track, MotionPrediction, AlertEvent
+│   ├── enums.py             ✅ TrackStatus, AlertLevel, AlertType
+│   ├── dto.py               ✅ DTOs cho API
+│   └── schemas.py           ✅ JSON schemas
 └── tracking/
     ├── __init__.py          🔶 verify exports
     ├── types.py             🔶 thêm kalman field + velocity_buffer field
@@ -383,15 +451,20 @@ src/
     ├── track_manager.py     🔶 tích hợp Kalman predict/update
     └── motion/              🆕 toàn bộ mới
         ├── __init__.py
+        ├── perspective.py   🆕 IPM / BEV transform
         ├── velocity_buffer.py
         ├── extrapolator.py
         └── predictor.py
 
 tests/
 ├── test_tracking_smoke.py   🔶 expand
+├── test_phase0_common_types.py ✅
 ├── test_kalman.py           🆕
 ├── test_matching.py         🆕
 ├── test_track_manager.py    🆕
+├── test_perspective.py      🆕
+├── test_velocity_buffer.py  ✅
+├── test_extrapolator.py     ✅
 └── test_motion_predictor.py 🆕
 ```
 
@@ -449,12 +522,121 @@ python app.py --source assets/videos/demo.mp4 --output outputs/tracked_demo.mp4
 
 ## Key Design Decisions
 
-1. **Kalman state 8D vs 6D**: Chọn 8D `[cx,cy,w,h,vx,vy,vw,vh]` để track cả kích thước bbox, giúp phân biệt xe đến gần (bbox to ra) vs xe đứng yên.
+1. **Relative Tracking (không cần CAN bus)**: Camera gắn cố định trên xe tải → ROI tĩnh trên pixel → vận tốc pixel = vận tốc tương đối. Ego-motion compensation là upgrade tương lai.
 
-2. **IoU cost matrix vs Euclidean distance**: IoU được chọn vì nó không cần calibration camera-specific, phù hợp khi không có thông tin 3D depth.
+2. **Kalman state 8D vs 6D**: Chọn 8D `[cx,cy,w,h,vx,vy,vw,vh]` để track cả kích thước bbox, giúp phân biệt xe đến gần (bbox to ra) vs xe đứng yên.
 
-3. **Velocity buffer song song Kalman**: Kalman velocity phù hợp cho matching (1 frame ahead), còn velocity buffer với rolling regression phù hợp hơn cho prediction dài hạn (0.5-2s) vì ít bị noise của Kalman state.
+3. **IoU cost matrix vs Euclidean distance**: IoU được chọn vì nó không cần calibration camera-specific, phù hợp khi không có thông tin 3D depth.
 
-4. **Confidence time-decay**: Exponential decay `e^(-λt)` là lựa chọn tự nhiên — uncertainty tăng theo thời gian khi không có observation mới.
+4. **Velocity buffer song song Kalman**: Kalman velocity phù hợp cho matching (1 frame ahead), còn velocity buffer với rolling regression phù hợp hơn cho prediction dài hạn (0.5-2s) vì ít bị noise của Kalman state.
 
-5. **Không dùng deep learning tracker (DeepSORT)**: Để tránh dependency phức tạp và giữ latency thấp. IoU-based matching đủ tốt cho xe cộ vì chúng có motion tương đối mượt và không overlap nhiều.
+5. **IPM/BEV trước Prediction**: Extrapolation tuyến tính `x(t) = x0 + vx*t` chỉ hợp lệ khi tỉ lệ pixel/mét đồng nhất. Camera perspective phá vỡ điều này → cần Homography transform sang BEV trước khi prediction. Fallback: chạy trên pixel gốc nếu chưa calibrate (chấp nhận sai lệch cho horizon > 0.5s).
+
+6. **Distance estimation bằng Pinhole model**: `Z = (f * H_real) / h_pixel`. Không cần LiDAR/Radar. Thêm field `distance_m` vào `Track` để phục vụ alert logic.
+
+7. **Confidence time-decay**: Exponential decay `e^(-λt)` là lựa chọn tự nhiên — uncertainty tăng theo thời gian khi không có observation mới.
+
+8. **Không dùng deep learning tracker (DeepSORT)**: Để tránh dependency phức tạp và giữ latency thấp. IoU-based matching đủ tốt cho xe cộ vì chúng có motion tương đối mượt và không overlap nhiều.
+
+---
+
+## Phase 5: Ego-Motion Compensation (Future — Nâng cao)
+*Mục đích: Xử lý chính xác các tình huống nguy hiểm nhất — xe tải rẽ phải/trái, phanh gấp, chuyển làn — nơi mà Relative Tracking (Phase 2) cho kết quả sai lệch.*
+
+> **Tại sao Phase này quan trọng?** Thống kê tai nạn cho thấy phần lớn va chạm điểm mù xảy ra khi xe tải **rẽ phải** — chính là lúc Relative Tracking bị sai nhiều nhất vì camera đang xoay. Phase 1-4 xử lý tốt khi đi thẳng (80% thời gian), Phase 5 xử lý 20% tình huống còn lại nhưng chiếm phần lớn rủi ro.
+
+### Bài toán 2 luồng chuyển động
+
+Khi xe tải rẽ phải:
+```
+Trên đời thực:                     Trên camera (pixel):
+┌─────────────────┐                ┌─────────────────┐
+│  Xe máy ĐỨNG YÊN│                │  Xe máy "LAO VÀO"│ ← gia tốc ảo
+│  tại ngã tư      │                │  blind spot       │    do camera xoay
+│                  │                │                   │
+│  Xe tải RẼ PHẢI  │                │  ROI vẫn cố định  │
+└─────────────────┘                └─────────────────┘
+```
+
+**Vấn đề**: System cảnh báo đúng (xe máy thực sự đang nguy hiểm) nhưng **dự đoán quỹ đạo sai** (vì pixel velocity thay đổi liên tục khi camera quay). Prediction 1-2s phía trước vô nghĩa.
+
+### 5.1 — Phát hiện trạng thái xe tải (Ego-State Detection)
+
+**Cách tiếp cận từ dễ → khó:**
+
+| Phương pháp | Độ khó | Mô tả |
+|---|---|---|
+| **Background Optical Flow** | ⭐⭐ | Tính optical flow của background (phần không có object). Nếu flow đồng nhất lớn → xe tải đang xoay/phanh |
+| **Vanishing Point Tracking** | ⭐⭐⭐ | Theo dõi điểm hội tụ (vanishing point) trên frame. VP dịch chuyển = xe tải đang rẽ |
+| **IMU Sensor** | ⭐ | Gắn cảm biến gia tốc rẻ tiền (~50k VND). Cho biết trực tiếp gia tốc góc và gia tốc tuyến tính |
+| **CAN Bus** | ⭐⭐⭐⭐ | Đọc dữ liệu OBD-II của xe: vận tốc bánh, góc lái. Chính xác nhất nhưng cần hardware adapter |
+
+**Đề xuất cho MVP Phase 5**: Bắt đầu với **Background Optical Flow** (chỉ cần OpenCV, không cần hardware):
+
+```python
+class EgoMotionEstimator:
+    def estimate_ego_rotation(self, prev_frame, curr_frame, object_masks) -> float:
+        """Tính góc xoay của camera giữa 2 frame bằng background optical flow.
+        - Mask ra vùng có object (từ YOLOv9 bboxes)
+        - Tính optical flow trên phần background còn lại
+        - Fit rotation model từ flow vectors
+        Returns: estimated rotation angle (radians/frame)
+        """
+
+    def is_turning(self, threshold_rad: float = 0.01) -> bool:
+        """True nếu xe tải đang rẽ (rotation > threshold)."""
+
+    def compensate_velocity(self, pixel_velocity: Velocity, ego_rotation: float) -> Velocity:
+        """Trừ đi thành phần vận tốc do camera xoay khỏi vận tốc pixel của object."""
+```
+
+### 5.2 — Bù trừ Ego-Motion cho Prediction
+
+- [ ] Khi `is_turning() == True`: giảm `prediction_horizon` xuống 0.3s (thay vì 2s) vì prediction dài hạn không đáng tin cậy
+- [ ] Trừ ego-rotation ra khỏi object velocity trước khi đưa vào VelocityBuffer
+- [ ] Tăng alert sensitivity khi đang rẽ (vì đây là lúc nguy hiểm nhất)
+- [ ] Hiển thị trạng thái "TURNING" trên dashboard
+
+### 5.3 — Dynamic ROI (Khi xe rẽ)
+
+Khi xe tải rẽ phải, vùng blind spot thực tế **mở rộng** (quét qua diện tích lớn hơn):
+
+- [ ] Mở rộng ROI polygon tạm thời khi phát hiện xe đang rẽ
+- [ ] Hoặc thêm "sweep zone" — vùng mà thân xe sẽ quét qua trong lúc rẽ
+- [ ] Tính toán sweep zone dựa trên bán kính rẽ ước lượng từ ego_rotation
+
+### 5.4 — Multi-Sensor Fusion (Optional — Cần Hardware)
+
+- [ ] Tích hợp IMU sensor qua USB/Serial → real-time ego acceleration
+- [ ] Tích hợp GPS module → ego velocity chính xác
+- [ ] Fuse IMU + Camera optical flow bằng Extended Kalman Filter
+- [ ] Tích hợp CAN Bus adapter (OBD-II) → steering angle, wheel speed
+
+---
+
+## Tổng Kết Roadmap Theo Mức Độ
+
+```
+Phase 0-4 (MVP):
+  ✅ Detection + Tracking + Basic Prediction
+  ✅ Hoạt động tốt khi xe tải đi thẳng (80% thời gian)
+  ⚠️ Prediction sai khi rẽ, nhưng detection vẫn cảnh báo đúng (an toàn)
+
+Phase 5 (Advanced):
+  🔶 Ego-motion compensation
+  🔶 Prediction chính xác cả khi rẽ phải/trái
+  🔶 Dynamic ROI mở rộng khi xe rẽ
+  🔶 Multi-sensor fusion (IMU/GPS/CAN)
+```
+
+---
+
+## Known Limitations (Phase 1-4)
+
+1. **Ego-motion không được bù trừ**: Khi xe tải rẽ gấp/phanh gấp, prediction sai lệch. Detection vẫn hoạt động (cảnh báo an toàn) nhưng quỹ đạo dự đoán không chính xác. → **Giải quyết ở Phase 5**.
+
+2. **Homography cố định**: Nếu camera bị rung hoặc thay đổi góc, ma trận H sẽ sai → cần recalibrate. Giải pháp: auto-calibration bằng vanishing point detection.
+
+3. **Không có 3D depth thực sự**: Distance estimation bằng pinhole model chỉ là xấp xỉ, phụ thuộc vào chiều cao thực của đối tượng (giả định cố định).
+
+4. **Turning scenarios là quan trọng nhất nhưng khó nhất**: Phần lớn tai nạn xảy ra khi rẽ, nhưng đây cũng là lúc prediction kém chính xác nhất. Phase 5 được thiết kế để giải quyết điểm yếu này theo hướng incremental (từ software-only đến multi-sensor).

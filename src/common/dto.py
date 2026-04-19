@@ -16,6 +16,7 @@ class DetectionDTO:
     anchor_point: Optional[Tuple[int, int]]
     zone_name: Optional[str]
     risk_level: Optional[str]
+    distance_m: Optional[float]
 
     @classmethod
     def from_detection(cls, detection: Detection) -> "DetectionDTO":
@@ -28,6 +29,7 @@ class DetectionDTO:
             anchor_point=detection.anchor_point,
             zone_name=detection.zone_name,
             risk_level=detection.risk_level,
+            distance_m=detection.distance_m,
         )
 
 
@@ -44,6 +46,7 @@ class TrackDTO:
     is_confirmed: bool
     status: str
     velocity: Optional[Tuple[float, float]]
+    distance_m: Optional[float]
     in_roi: bool
     anchor_point: Optional[Tuple[int, int]]
     zone_name: Optional[str]
@@ -63,6 +66,7 @@ class TrackDTO:
             is_confirmed=track.is_confirmed,
             status=track.status.value,
             velocity=track.velocity,
+            distance_m=track.distance_m,
             in_roi=track.in_roi,
             anchor_point=track.anchor_point,
             zone_name=track.zone_name,

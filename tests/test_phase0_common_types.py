@@ -20,6 +20,7 @@ class FakeDetection:
         self.in_roi = False
         self.zone_name = None
         self.risk_level = None
+        self.distance_m = None
         x1, y1, x2, y2 = bbox
         self.anchor_point = (int((x1 + x2) / 2), int((y1 + y2) / 2))
 
@@ -67,3 +68,24 @@ def test_dto_and_schema_exports() -> None:
     assert dto_payload["bbox"] == (10, 20, 30, 40)
     assert dto_payload["class_name"] == "bike"
     assert "Detection" in TYPE_SCHEMAS
+
+
+def test_detection_and_track_distance_defaults() -> None:
+    from src.common.models import Detection, Track
+
+    detection = Detection(
+        bbox=(10, 20, 30, 40),
+        confidence=0.8,
+        class_id=1,
+        class_name="bike",
+    )
+    track = Track(
+        track_id=1,
+        bbox=(10.0, 20.0, 30.0, 40.0),
+        confidence=0.8,
+        class_id=1,
+        class_name="bike",
+    )
+
+    assert detection.distance_m is None
+    assert track.distance_m is None

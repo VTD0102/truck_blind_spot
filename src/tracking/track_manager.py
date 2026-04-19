@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Protocol, Sequence
+import time
+from typing import Callable, List, Protocol, Sequence
 
+from .motion.velocity_buffer import VelocityBuffer
 from .matching import match_tracks_detections
 from .types import Point, Track, TrackStatus
 
@@ -17,6 +19,7 @@ class TrackDetection(Protocol):
     in_roi: bool
     zone_name: str | None
     risk_level: str | None
+    distance_m: float | None
 
 
 class TrackManager:
@@ -28,11 +31,13 @@ class TrackManager:
         max_misses: int = 5,
         min_hits: int = 2,
         max_trace_length: int = 30,
+        time_provider: Callable[[], float] | None = None,
     ) -> None:
         self.iou_threshold = iou_threshold
         self.max_misses = max_misses
         self.min_hits = min_hits
         self.max_trace_length = max_trace_length
+        self._time_provider = time_provider or time.time
 
         self.tracks: List[Track] = []
         self._next_track_id = 1
@@ -90,7 +95,13 @@ class TrackManager:
             in_roi=detection.in_roi,
             zone_name=detection.zone_name,
             risk_level=detection.risk_level,
+            distance_m=detection.distance_m,
         )
+
+        timestamp = float(self._time_provider())
+        if detection.anchor_point is not None:
+            track.velocity_buffer = VelocityBuffer()
+            track.velocity_buffer.push(detection.anchor_point, timestamp)
 
         self._append_trace(track, detection.anchor_point)
 
@@ -109,6 +120,7 @@ class TrackManager:
         track.in_roi = detection.in_roi
         track.zone_name = detection.zone_name
         track.risk_level = detection.risk_level
+        track.distance_m = detection.distance_m
 
         track.hits += 1
         track.misses = 0
@@ -124,7 +136,30 @@ class TrackManager:
             dy = float(detection.anchor_point[1] - previous_anchor[1])
             track.velocity = (dx, dy)
 
+        timestamp = float(self._time_provider())
+        self._update_velocity_buffer(track, detection.anchor_point, timestamp)
+
         self._append_trace(track, detection.anchor_point)
+
+    def _update_velocity_buffer(
+        self,
+        track: Track,
+        point: Point | None,
+        timestamp: float,
+    ) -> None:
+        if point is None:
+            return
+
+        if track.velocity_buffer is None:
+            track.velocity_buffer = VelocityBuffer()
+
+        track.velocity_buffer.push(point, timestamp)
+        if len(track.velocity_buffer) < 5:
+            return
+
+        velocity = track.velocity_buffer.get_smoothed_velocity(window=5)
+        if velocity is not None:
+            track.velocity = velocity
 
     def _mark_missed(self, track: Track) -> None:
         track.misses += 1

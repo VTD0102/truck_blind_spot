@@ -17,6 +17,7 @@ class FakeDetection:
     in_roi: bool = False
     zone_name: str | None = None
     risk_level: str | None = None
+    distance_m: float | None = None
 
     def __post_init__(self) -> None:
         if self.anchor_point is None:
@@ -115,3 +116,44 @@ def test_track_manager_removes_after_too_many_misses() -> None:
     print("Tracks after too many misses:", tracks3)
 
     assert len(tracks3) == 0
+
+
+def test_track_manager_uses_delta_velocity_before_buffer_ready() -> None:
+    timeline = iter([0.0, 1.0])
+    manager = TrackManager(
+        iou_threshold=0.3,
+        max_misses=2,
+        min_hits=1,
+        time_provider=lambda: next(timeline),
+    )
+
+    manager.update([FakeDetection((100.0, 100.0, 200.0, 200.0))])
+    tracks = manager.update([FakeDetection((110.0, 100.0, 210.0, 200.0))])
+    assert len(tracks) == 1
+    track = tracks[0]
+    assert track.velocity == (10.0, 0.0)
+    assert track.velocity_buffer is not None
+    assert len(track.velocity_buffer) == 2
+
+
+def test_track_manager_prefers_buffer_velocity_when_ready() -> None:
+    timeline = iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    manager = TrackManager(
+        iou_threshold=0.3,
+        max_misses=2,
+        min_hits=1,
+        time_provider=lambda: next(timeline),
+    )
+
+    for i in range(6):
+        x1 = 100.0 + 10.0 * i
+        x2 = 200.0 + 10.0 * i
+        tracks = manager.update([FakeDetection((x1, 100.0, x2, 200.0))])
+        assert len(tracks) == 1
+
+    track = tracks[0]
+    assert track.velocity_buffer is not None
+    assert len(track.velocity_buffer) >= 5
+    assert track.velocity is not None
+    assert abs(track.velocity[0] - 10.0) < 1e-6
+    assert abs(track.velocity[1] - 0.0) < 1e-6
