@@ -4,7 +4,7 @@ from typing import Tuple
 
 import numpy as np
 
-from .types import FloatBBox
+from .types import FloatBBox, Velocity
 
 CxCyWhBBox = Tuple[float, float, float, float]
 
@@ -112,6 +112,12 @@ class BoundingBoxKalmanFilter:
         w = float(self.state[2, 0])
         h = float(self.state[3, 0])
         return self.cxcywh_to_xyxy((cx, cy, w, h))
+
+    def get_velocity(self) -> Velocity:
+        """Return the current ``(vx, vy)`` estimate in pixels per frame."""
+
+        self._ensure_initialized()
+        return (float(self.state[4, 0]), float(self.state[5, 0]))
 
     @staticmethod
     def xyxy_to_cxcywh(bbox_xyxy: FloatBBox) -> CxCyWhBBox:
