@@ -14,12 +14,13 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 | `src/detector.py`               | ✅ Hoàn thiện | `YOLOv9Detector` + `Detection` dataclass                    |
 | `src/roi.py`                    | ✅ Hoàn thiện | `MultiPolygonROI`, multi-zone, risk_level                   |
 | `src/visualize.py`              | ✅ Hoàn thiện | `BlindSpotVisualizer`                                       |
-| `src/pipeline.py`               | ✅ Hoàn thiện | `BlindSpotPipeline` orchestrator                            |
+| `src/pipeline.py`               | ✅ Hoàn thiện | `BlindSpotPipeline` orchestrator (chưa có tracking)        |
 | `src/tracking/types.py`         | ✅ Hoàn thiện | `Track` dataclass, `FloatBBox`, `Velocity`                  |
 | `src/tracking/kalman_filter.py` | ✅ Hoàn thiện | `BoundingBoxKalmanFilter` (8D state: cx,cy,w,h,vx,vy,vw,vh) |
 | `src/tracking/matching.py`      | ✅ Hoàn thiện | `match_tracks_detections` (Hungarian + IoU cost matrix)     |
-| `src/tracking/track_manager.py` | ✅ Hoàn thiện | `TrackManager` (birth/update/death lifecycle)               |
-| `tests/test_tracking_smoke.py`  | 🔶 Partial    | Smoke test cơ bản, chưa đầy đủ                              |
+| `src/tracking/track_manager.py` | 🔶 Partial    | `TrackManager` (birth/update/death), chưa tích hợp Kalman   |
+| `src/tracking/motion/...`       | ✅ Hoàn thiện | Perspective, VelocityBuffer, Extrapolator đã xong           |
+| `tests/test_tracking_smoke.py`  | ✅ Hoàn thiện | Smoke test đầy đủ cho Kalman, Matching, TrackManager        |
 
 **Kết luận**: Toàn bộ Phase 1 đã được code sẵn. Nhiệm vụ còn lại là:
 
@@ -57,7 +58,7 @@ _Mục đích: Định nghĩa ngôn ngữ chung cho toàn bộ hệ thống đ�
 **Việc cần làm (polish)**:
 
 - [ ] Xác nhận `process_noise` và `measurement_noise` mặc định bằng cách chạy với video thực tế
-- [ ] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — hiện tại TrackManager tính velocity thủ công từ anchor points thay vì dùng Kalman state
+- [x] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — đã xong
 - [x] Thêm docstring mô tả đơn vị (pixels/frame) và giả thiết mô hình — đã có docstring trong class
 - [x] Kiểm tra edge case: `initiate()` với bbox rất nhỏ — `_clamp_state_size()` xử lý `w,h < 1e-6`
 
@@ -118,16 +119,16 @@ Frame N:
 
 **Việc cần làm**:
 
-- [ ] Code review toàn bộ `src/tracking/` module
-- [x] Đảm bảo `src/tracking/__init__.py` export đầy đủ — `types.py` hiện re-export từ `common`
-- [ ] ⚠️ File `src/tracking/init.py` vẫn còn tồn tại (tên sai, cần kiểm tra)
-- [ ] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
-  - [ ] Kalman filter: `initiate → predict → update` cycle
-  - [ ] Hungarian: edge cases (0 tracks, 0 detections, no overlap)
-  - [ ] TrackManager: track birth confirmation (min_hits), track death (max_misses)
-  - [ ] Full integration: 3 detections → track creation → next frame match
+- [x] Code review toàn bộ `src/tracking/` module
+- [x] Đảm bảo `src/tracking/__init__.py` export đầy đủ — hiện tại đang là `init.py`
+- [ ] ⚠️ Đổi tên file `src/tracking/init.py` thành `__init__.py`
+- [x] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
+  - [x] Kalman filter: `initiate → predict → update` cycle
+  - [x] Hungarian: edge cases (0 tracks, 0 detections, no overlap)
+  - [x] TrackManager: track birth confirmation (min_hits), track death (max_misses)
+  - [x] Full integration: 3 detections → track creation → next frame match
 - [ ] Update `CLAUDE.md` thêm section về `src/tracking/` module
-- [ ] Chạy `python -m pytest tests/ -v` để validate
+- [x] Chạy `python -m pytest tests/ -v` để validate
 
 ---
 
@@ -372,7 +373,7 @@ class MotionPrediction:
   - `prediction_horizons_s`: kiểm tra 0.5s, 1.0s, 2.0s
   - `alert_confidence_threshold`: chỉnh từ 0.4 → 0.7 tùy false positive rate
 - [x] Viết unit tests cho `VelocityBuffer`, `TrajectoryExtrapolator`
-- [ ] Viết unit tests cho `MotionPredictor`
+- [ ] Viết unit tests cho `MotionPredictor` (chưa có file)
   - Test với constant velocity motion → verify linear extrapolation
   - Test với accelerating motion → verify quadratic extrapolation
   - Test confidence decay với increasing prediction horizon
