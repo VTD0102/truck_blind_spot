@@ -103,11 +103,14 @@ class BlindSpotPipeline:
 
         # Cập nhật dự đoán chuyển động cho mỗi track đang theo dõi
         current_time = time.time()
-        predictions: Dict[int, MotionPrediction] = {
-            t.track_id: self.motion_predictor.update(t, current_time)
-            for t in tracks
-        }
-        self.last_predictions = predictions
+        try:
+            predictions: Dict[int, MotionPrediction] = {
+                t.track_id: self.motion_predictor.update(t, current_time)
+                for t in tracks
+            }
+            self.last_predictions = predictions
+        except Exception:
+            predictions = {}
 
         annotated_frame = self.visualizer.draw(
             frame=frame,

@@ -154,8 +154,9 @@ class BlindSpotVisualizer:
 
             # Vẽ các điểm dự đoán trên quỹ đạo
             for pt in pred.trajectory:
-                x, y = pt.position
-                radius = max(3, int(pt.confidence * 8))
+                x = max(0, min(frame.shape[1] - 1, int(round(pt.position[0]))))
+                y = max(0, min(frame.shape[0] - 1, int(round(pt.position[1]))))
+                radius = max(1, int(pt.confidence * 8))
                 cv2.circle(frame, (x, y), radius, alert_color, -1)
 
             # Vẽ nhãn confidence và mức cảnh báo gần bbox
