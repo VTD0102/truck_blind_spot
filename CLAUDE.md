@@ -4,239 +4,242 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Truck Blind Spot Detection** is a real-time YOLOv9-based ADAS system that flags objects (person, bike, motor, car, truck, bus) entering configurable blind-spot zones of a truck. The current default checkpoint is `weights/best_6k.pt` (see `app.py` defaults).
+**Truck Blind Spot Detection** is a real-time object detection system built on **YOLOv9** to identify objects (persons, bicycles, cars, motorcycles) in the blind spot zones of trucks. The system is designed as an ADAS (Advanced Driver Assistance System) safety feature that provides visual alerts when dangerous objects enter a configurable Region of Interest (ROI).
 
-> **Read `RULES.md`** — it's the project's enforced rulebook (Python 3.10+, Vietnamese comments/error messages, dependency direction, performance budgets, visualization conventions). This file does not duplicate those rules.
+### Key Features
+- Fine-tuned YOLOv9-Small model (mAP@0.5 = 0.70)
+- ROI-based blind spot detection with polygon geometry
+- Real-time inference with FPS monitoring
+- Multi-source input support (video files, webcam, images)
+- Video output with annotations
+- Configurable thresholds and device selection (CPU/GPU)
 
 ---
 
 ## Architecture & Code Structure
 
+The pipeline is modular with clear separation of concerns:
+
 ```
-Frame
-  → YOLOv9Detector.predict()          (src/detector.py)      → List[Detection]
-  → MultiPolygonROI.get_zone()        (src/roi.py)           → detection.in_roi / zone_name / risk_level
-  → TrackManager.update()             (src/tracking/*)       → List[Track]     (optional, not yet wired into pipeline)
-  → BlindSpotVisualizer.draw()        (src/visualize.py)     → annotated frame
+Input Frame
+    ↓
+YOLOv9Detector (src/detector.py)
+  - Load model weights from .pt file
+  - Preprocess: letterbox resizing, BGR→CHW conversion
+  - Inference on frame
+  - Apply NMS filtering
+  - Scale bboxes back to original frame dimensions
+    ↓
+Detection[] (dataclass with bbox, conf, class_id, in_roi flag)
+    ↓
+PolygonROI (src/roi.py)
+  - Parse roi.json polygon configuration
+  - Calculate anchor_point (bbox_bottom_center) for each detection
+  - Test point-in-polygon membership
+  - Mark detection.in_roi = True/False
+    ↓
+BlindSpotVisualizer (src/visualize.py)
+  - Draw ROI polygon overlay
+  - Draw bboxes: green (safe) or red (in blind spot)
+  - Render detection labels and "BLIND SPOT" warnings
+  - Add FPS counter and status text
+    ↓
+Output Frame (annotated)
 ```
 
 ### Core Modules
 
 | File | Purpose |
 |------|---------|
-| **app.py** | Main CLI entry point. Video capture loop, keyboard controls (`p`/`r`/`q`), video writer, FPS smoothing. |
-| **src/detector.py** | `YOLOv9Detector` + `Detection` dataclass. Loads model via `DetectMultiBackend`, runs letterbox preprocess → inference → NMS → `scale_boxes`. **Only place in the repo that injects `yolov9/` into `sys.path`.** |
-| **src/roi.py** | `MultiPolygonROI` + `ROIZone`. Multi-zone ROI (per-profile: `front_camera`, `rear_camera`) with per-zone `risk_level` and color. Scales vertices to current frame size. |
-| **src/visualize.py** | `BlindSpotVisualizer` — draws zone polygons, bboxes (green=safe / red=in blind spot), labels, warnings. |
-| **src/pipeline.py** | `BlindSpotPipeline` orchestrator (detector → ROI → visualizer). Also standalone CLI for image/video. Does **not** yet integrate `src/tracking/` — see Plan.md §1.5. |
-| **src/roi_evaluation.py** | Standalone tool: per-zone / per-class recall evaluation. Run via `python -m src.roi_evaluation`. |
-| **src/tracking/** | Kalman filter + Hungarian matching + `TrackManager`. **Architectural invariant: must not import from `yolov9/` or `src/detector.py`** (see RULES §2.1). Takes dataclasses (`Detection`, `Track`) only. |
-| **yolov9/** | Vendored upstream. **Do not edit** (RULES §5). |
-
-### `Detection` dataclass (flows through pipeline)
-
-`bbox (x1,y1,x2,y2)`, `confidence`, `class_id`, `class_name`, `anchor_point`, `in_roi`, `zone_name`, `risk_level`. Mutated in-place by ROI stage.
+| **app.py** | Main CLI entry point. Handles video capture, frame loop, keyboard controls (pause/resume/restart), video writer, FPS smoothing |
+| **src/detector.py** | `YOLOv9Detector` wrapper. Loads YOLOv9 model via `DetectMultiBackend`, preprocesses frames, runs inference, applies NMS. Uses YOLOv9 utils for letterbox and scale_boxes |
+| **src/roi.py** | `PolygonROI` class. Parses roi.json (polygon + check_point strategy), implements point-in-polygon test |
+| **src/visualize.py** | `BlindSpotVisualizer` class. Renders annotations on frames (ROI polygon, bboxes, labels, warnings) |
+| **src/pipeline.py** | `BlindSpotPipeline` orchestrator. Chains detector → ROI check → visualizer. Also supports standalone image/video processing with CLI |
+| **yolov9/** | Upstream YOLOv9 source. Used for model loading and inference utilities |
 
 ### Configuration Files
 
-| File | Purpose |
-|------|---------|
-| `configs/classes.yaml` | 6 classes: `person, bike, motor, car, truck, bus`. Must stay in sync with `configs/blindspot.yaml`. |
-| `configs/roi.json` | Multi-zone ROI. Schema: `profiles.{front_camera,rear_camera}.zones[].{name, risk_level, color, polygon}`. |
-| `configs/blindspot.yaml` | Dataset YAML for YOLOv9 training/eval (used by `roi_evaluation.py`). |
-| `weights/best_6k.pt`, `weights/best_pilot_4k5.pt` | Fine-tuned checkpoints. `best_6k.pt` is the current `app.py` default. |
+- **configs/classes.yaml** — Class name mappings (person, bicycle, car, motorcycle)
+- **configs/roi.json** — Polygon vertices and check_point strategy for blind spot region
+- **weights/best_small.pt** — Fine-tuned YOLOv9-Small weights (20.3 MB)
 
 ---
 
 ## Common Commands
 
-### Setup
+### Development & Testing
 
 ```bash
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Demo (app.py)
-
-```bash
-# Default: weights/best_6k.pt + assets/videos/demo4.mp4 + roi-profile=front_camera
+# Run demo with default video
 python3 app.py
 
-# Swap ROI profile (required when camera is rear-facing)
-python3 app.py --roi-profile rear_camera
+# Process custom video, save output
+python3 app.py --source assets/videos/demo.mp4 --output output/result.mp4
 
-# Custom source / output / thresholds / device
-python3 app.py --source assets/videos/demo.mp4 --output outputs/result.mp4
-python3 app.py --source 0                         # webcam index 0
-python3 app.py --loop                             # loop a file source
-python3 app.py --conf-thres 0.3 --iou-thres 0.5
-python3 app.py --device cpu                       # or cuda:0 (empty = auto)
-```
+# Use webcam (index 0)
+python3 app.py --source 0
 
-Playback keys: `p` pause/resume · `r` restart (file only) · `q` quit. `src/pipeline.py`'s standalone viewer also accepts `Esc`.
+# Auto-loop video until interrupted
+python3 app.py --source assets/videos/demo.mp4 --loop
 
-### Pipeline CLI (image/video without `app.py`)
-
-```bash
+# Process single image
 python3 src/pipeline.py --source path/to/image.jpg --show
-python3 src/pipeline.py --source assets/videos/demo.mp4 --output outputs/out.mp4 --show
+
+# Process video via pipeline (CLI alternative to app.py)
+python3 src/pipeline.py --source assets/videos/demo.mp4 --output output.mp4 --show
+
+# Adjust detection thresholds
+python3 app.py --conf-thres 0.3 --iou-thres 0.5
+
+# Force CPU inference
+python3 app.py --device cpu
+
+# Use GPU (auto-detected if available)
+python3 app.py --device cuda:0
 ```
 
-Image mode prints per-detection dicts (bbox, confidence, class, in_roi, zone_name, risk_level, anchor_point).
+### Keyboard Controls (during playback)
 
-### Tests
+| Key | Action |
+|-----|--------|
+| `p` | Pause/Resume |
+| `r` | Restart video from beginning (file input only) |
+| `q` | Quit |
+| `Esc` | Quit (pipeline.py mode) |
+
+### Virtual Environment
 
 ```bash
-python -m pytest tests/ -v                        # RULES §8.1 — pytest, not unittest
-python -m pytest tests/test_tracking_smoke.py -v  # tracking module only (no GPU/weights needed)
-```
+# Create and activate venv
+python3 -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or
+venv\Scripts\activate     # Windows
 
-### ROI-aware recall evaluation
-
-```bash
-python -m src.roi_evaluation \
-  --weights weights/best_6k.pt \
-  --data configs/blindspot.yaml \
-  --roi configs/roi.json \
-  --roi-profile front_camera \
-  --split val --conf-thres 0.25 --iou-match 0.5 \
-  --output-dir outputs/roi_eval
+# Install dependencies
+pip install -r requirements.txt
 ```
 
 ---
 
-## Project-Specific Gotchas
+## Key Dependencies & Integration Points
 
-- **Vendored YOLOv9** — never edit `yolov9/`. All imports (`DetectMultiBackend`, `letterbox`, `non_max_suppression`, `scale_boxes`, `select_device`) go through `src/detector.py`, which is the single place that adds `yolov9/` to `sys.path`.
-- **Tracking dependency direction is enforced** — `src/tracking/` must not import from `yolov9/` or `src/detector.py`; it operates on dataclasses only. Tracking tests must pass without GPU or `.pt` weights.
-- **`src/tracking/init.py` is misnamed** — should be `__init__.py` (flagged in `Plan.md` §1.4). Python 3 namespace-package imports still work via full paths (e.g. `from src.tracking.kalman_filter import ...`), but `from src.tracking import TrackManager` does not.
-- **Tracking is not wired into `BlindSpotPipeline` yet** — `pipeline.py` currently returns `(frame, detections)` only. Integration plan lives in `Plan.md` §1.5 (signature will become `(frame, detections, tracks)`).
-- **ROI profiles are required** — `configs/roi.json` has no top-level `polygon`. Code must pick a profile name (`front_camera` or `rear_camera`). `MultiPolygonROI` rescales all zone vertices to the current frame size on every call to `update_frame_size()`.
-- **Class list is 6, not 4** — syncing `configs/classes.yaml` with `configs/blindspot.yaml` is required when retraining.
-- **ADAS bias (RULES §12)** — false negatives are worse than false positives; keep `conf_threshold` low, `max_misses` high, `min_hits` low.
-- **Path handling** — every module resolves paths via `PROJECT_ROOT = Path(__file__).resolve().parents[N]` and `_resolve_path()`. Never hardcode absolute paths (RULES §3).
-- **Video codec** hardcoded to `mp4v`; output containers must be `.mp4`.
+### Deep Learning Stack
+- **PyTorch** (≥2.0) — Model inference backend
+- **YOLOv9** — Detection model (source code in `yolov9/`)
+  - Imports: `DetectMultiBackend`, `letterbox`, `non_max_suppression`, `scale_boxes`, `select_device`
+  - Located in: `yolov9/models/common.py`, `yolov9/utils/augmentations.py`, `yolov9/utils/general.py`, `yolov9/utils/torch_utils.py`
 
-## Default Hyperparameters
+### Computer Vision
+- **OpenCV** (≥4.8.0) — Video capture, frame I/O, drawing primitives (rectangles, polygons, text)
+- **NumPy** — Array operations and geometry
 
-| Stage | Parameter | Default | Source |
-|-------|-----------|---------|--------|
-| Detector | `image_size` | `(640, 640)` | `src/detector.py` |
-| Detector | `conf_threshold` | `0.25` | `src/detector.py` |
-| Detector | `iou_threshold` | `0.45` (NMS) | `src/detector.py` |
-| Detector | `max_det` | `300` | `src/detector.py` |
-| Tracking | `iou_threshold` | `0.3` (Hungarian) | `TrackManager` |
-| Tracking | `max_misses` | `5` | `TrackManager` |
-| Tracking | `min_hits` | `2` | `TrackManager` |
-| Kalman | `process_noise` / `measurement_noise` | `1e-2` / `1e-1` | `BoundingBoxKalmanFilter` |
+### Configuration & Utilities
+- **PyYAML** — Parse `configs/classes.yaml`
+- **Python pathlib** — Cross-platform path handling (used throughout)
 
-Acceptable ranges and tuning guidance live in `RULES.md` §7 and `Plan.md`.
+### Important Pattern: sys.path Injection
+`src/detector.py` injects YOLOv9 into sys.path to enable direct imports of YOLOv9 modules. Any new code that needs YOLOv9 utils should follow this pattern or import from detector.py.
 
-## Ongoing Work
+---
 
-See `Plan.md` for the tracking/motion-prediction roadmap:
-- **Phase 1** — integrate Kalman into `TrackManager`, fix `init.py` → `__init__.py`, wire `TrackManager` into `BlindSpotPipeline`.
-- **Phase 2** — new `src/tracking/motion/` (VelocityBuffer, TrajectoryExtrapolator, MotionPredictor) with confidence scoring and predicted-trajectory visualization.
+## Development Patterns & Conventions
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+### Path Handling
+All modules use `Path(__file__).resolve().parents[N]` to locate PROJECT_ROOT, then resolve relative paths from there. This ensures portability regardless of where the script is invoked from. Use `_resolve_path()` static method or the `PROJECT_ROOT` constant.
 
-This project is indexed by GitNexus as **truck_blind_spot** (2257 symbols, 7165 relationships, 190 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+### Device Selection
+Device selection is delegated to YOLOv9's `select_device()` utility. Empty string `""` means auto-detect GPU if available; otherwise use explicit `"cpu"`, `"cuda:0"`, etc.
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+### Dataclass Usage
+`Detection` is a dataclass that flows through the pipeline. Mutable fields like `in_roi` and `anchor_point` are set as the detection moves through ROI and visualization stages.
 
-## Always Do
+### Error Handling
+- File/path errors raise `RuntimeError` or `FileNotFoundError` with descriptive messages
+- Video capture failures explicitly check `cap.isOpened()`
+- Empty/invalid frames are validated before processing
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+### Code Comments
+Comments in Vietnamese (matching the project language). Complex logic is explained inline; trivial operations are left uncommented.
 
-## When Debugging
+---
 
-1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
-2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/truck_blind_spot/process/{processName}` — trace the full execution flow step by step
-4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
+## Testing & Debugging Tips
 
-## When Refactoring
+### Quick Validation
+Run demo with verbose output to see:
+- Model loading and device selection
+- Frame dimensions and FPS
+- Number of detections per frame
+- ROI membership test results
 
-- **Renaming**: MUST use `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` first. Review the preview — graph edits are safe, text_search edits need manual review. Then run with `dry_run: false`.
-- **Extracting/Splitting**: MUST run `gitnexus_context({name: "target"})` to see all incoming/outgoing refs, then `gitnexus_impact({target: "target", direction: "upstream"})` to find all external callers before moving code.
-- After any refactor: run `gitnexus_detect_changes({scope: "all"})` to verify only expected files changed.
-
-## Never Do
-
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
-
-## Tools Quick Reference
-
-| Tool | When to use | Command |
-|------|-------------|---------|
-| `query` | Find code by concept | `gitnexus_query({query: "auth validation"})` |
-| `context` | 360-degree view of one symbol | `gitnexus_context({name: "validateUser"})` |
-| `impact` | Blast radius before editing | `gitnexus_impact({target: "X", direction: "upstream"})` |
-| `detect_changes` | Pre-commit scope check | `gitnexus_detect_changes({scope: "staged"})` |
-| `rename` | Safe multi-file rename | `gitnexus_rename({symbol_name: "old", new_name: "new", dry_run: true})` |
-| `cypher` | Custom graph queries | `gitnexus_cypher({query: "MATCH ..."})` |
-
-## Impact Risk Levels
-
-| Depth | Meaning | Action |
-|-------|---------|--------|
-| d=1 | WILL BREAK — direct callers/importers | MUST update these |
-| d=2 | LIKELY AFFECTED — indirect deps | Should test |
-| d=3 | MAY NEED TESTING — transitive | Test if critical path |
-
-## Resources
-
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/truck_blind_spot/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/truck_blind_spot/clusters` | All functional areas |
-| `gitnexus://repo/truck_blind_spot/processes` | All execution flows |
-| `gitnexus://repo/truck_blind_spot/process/{name}` | Step-by-step execution trace |
-
-## Self-Check Before Finishing
-
-Before completing any code modification task, verify:
-1. `gitnexus_impact` was run for all modified symbols
-2. No HIGH/CRITICAL risk warnings were ignored
-3. `gitnexus_detect_changes()` confirms changes match expected scope
-4. All d=1 (WILL BREAK) dependents were updated
-
-## Keeping the Index Fresh
-
-After committing code changes, the GitNexus index becomes stale. Re-run analyze to update it:
-
+Print detection details via pipeline CLI:
 ```bash
-npx gitnexus analyze
+python3 src/pipeline.py --source test.jpg --show
 ```
+Output shows per-detection dict with bbox, confidence, class_id, and in_roi flag.
 
-If the index previously included embeddings, preserve them by adding `--embeddings`:
+### Performance Profiling
+- FPS counter in top-left of output (smoothed over 10 frames)
+- Adjust `--conf-thres` and `--iou-thres` to trade accuracy for speed
+- Use `--device cpu` vs `--device cuda:0` to compare inference time
 
-```bash
-npx gitnexus analyze --embeddings
+### Common Issues
+- **Model weights not found**: Ensure `weights/best_small.pt` exists
+- **CUDA out of memory**: Reduce frame resolution or use CPU
+- **ROI polygon visualization incorrect**: Verify `configs/roi.json` polygon vertices match frame dimensions (1280x720 by default)
+- **Slow inference on CPU**: Expected; YOLOv9-Small still requires ~30 FPS on modern CPUs
+
+---
+
+## Code Quality & Contribution Notes
+
+- Type hints are used throughout (e.g., `Tuple[int, int, int, int]` for bbox, `Optional[str]` for paths)
+- Dataclasses and static methods organize related logic
+- Relative imports use `try/except` fallback in pipeline.py for flexibility
+- No external logging framework; uses print() for console feedback
+- Video codec is hardcoded to `"mp4v"` (h.264 MP4 container)
+
+---
+
+## Configuration Deep Dive
+
+### Model Hyperparameters (src/detector.py)
+- **image_size**: (640, 640) — YOLOv9 input resolution
+- **conf_threshold**: 0.25 default — Confidence score filter
+- **iou_threshold**: 0.45 default — NMS IoU overlap threshold
+- **max_det**: 300 — Max detections per frame
+
+### ROI Configuration (configs/roi.json)
+Example structure:
+```json
+{
+  "image_size": {"w": 1280, "h": 720},
+  "polygon": [[900, 150], [1270, 250], [1270, 710], [800, 710], [760, 520]],
+  "check_point": "bbox_bottom_center"
+}
 ```
+- **polygon**: 5 vertices defining the blind spot region (right side in typical truck view)
+- **check_point**: Strategy for anchor point (`"bbox_bottom_center"` — bottom-middle of bbox, suitable for detecting ground-level objects near the truck)
 
-To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.embeddings` field shows the count (0 means no embeddings). **Running analyze without `--embeddings` will delete any previously generated embeddings.**
+### Class Configuration (configs/classes.yaml)
+```yaml
+names:
+  0: person
+  1: bicycle
+  2: car
+  3: motorcycle
+```
+YOLOv9-Small is trained on these 4 classes; detection output class_id references this mapping.
 
-> Claude Code users: A PostToolUse hook handles this automatically after `git commit` and `git merge`.
+---
 
-## CLI
+## Project History & Dependencies
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+This project builds on:
+- **YOLOv9** detection framework (https://github.com/WongKinYiu/yolov9) — embedded in `yolov9/` directory
+- Custom fine-tuning on truck-specific dataset (see `report/training_report.md`)
+- ROI-based post-processing to identify dangerous blind spot regions
 
-<!-- gitnexus:end -->
+The upstream YOLOv9 code is vendored to avoid API breakage from upstream updates.
