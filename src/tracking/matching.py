@@ -1,17 +1,31 @@
 from __future__ import annotations
 
-from typing import List, Protocol, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Callable, List, Literal, Protocol, Sequence, Tuple
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from .types import FloatBBox, Track
+from .types import FloatBBox
 
 Match = Tuple[int, int]
+DistanceMetric = Literal["iou", "mahalanobis"]
 
 
 class HasBBox(Protocol):
     bbox: FloatBBox
+
+
+PairwiseScore = Callable[[HasBBox, HasBBox], float]
+MatrixTransform = Callable[[np.ndarray], np.ndarray]
+MatchPredicate = Callable[[float, float], bool]
+
+
+@dataclass(frozen=True)
+class AssignmentMetric:
+    pairwise_score: PairwiseScore
+    to_cost_matrix: MatrixTransform
+    is_valid_match: MatchPredicate
 
 
 def compute_iou(box1: FloatBBox, box2: FloatBBox) -> float:
@@ -39,12 +53,40 @@ def compute_iou(box1: FloatBBox, box2: FloatBBox) -> float:
     return intersection / union
 
 
+def _score_iou(track: HasBBox, detection: HasBBox) -> float:
+    return compute_iou(track.bbox, detection.bbox)
+
+
+def _resolve_assignment_metric(
+    distance_metric: str | DistanceMetric,
+) -> AssignmentMetric:
+    normalized_metric = distance_metric.strip().lower()
+
+    if normalized_metric == "iou":
+        return AssignmentMetric(
+            pairwise_score=_score_iou,
+            to_cost_matrix=lambda score_matrix: 1.0 - score_matrix,
+            is_valid_match=lambda score, threshold: score >= threshold,
+        )
+
+    if normalized_metric == "mahalanobis":
+        raise NotImplementedError(
+            "Mahalanobis matching is reserved for a future gating implementation."
+        )
+
+    raise ValueError(
+        "Unsupported distance_metric. "
+        "Expected one of: 'iou', 'mahalanobis'."
+    )
+
+
 def match_tracks_detections(
-    tracks: Sequence[Track],
+    tracks: Sequence[HasBBox],
     detections: Sequence[HasBBox],
     iou_threshold: float = 0.3,
+    distance_metric: str | DistanceMetric = "iou",
 ) -> Tuple[List[Match], List[int], List[int]]:
-    """Match tracks to detections using Hungarian assignment with IoU gating."""
+    """Match tracks to detections using Hungarian assignment."""
 
     if not tracks and not detections:
         return [], [], []
@@ -53,18 +95,19 @@ def match_tracks_detections(
     if not detections:
         return [], list(range(len(tracks))), []
 
+    assignment_metric = _resolve_assignment_metric(distance_metric)
     num_tracks = len(tracks)
     num_detections = len(detections)
-    iou_matrix = np.zeros((num_tracks, num_detections), dtype=np.float64)
+    score_matrix = np.zeros((num_tracks, num_detections), dtype=np.float64)
 
     for track_idx, track in enumerate(tracks):
         for detection_idx, detection in enumerate(detections):
-            iou_matrix[track_idx, detection_idx] = compute_iou(
-                track.bbox,
-                detection.bbox,
+            score_matrix[track_idx, detection_idx] = assignment_metric.pairwise_score(
+                track,
+                detection,
             )
 
-    cost_matrix = 1.0 - iou_matrix
+    cost_matrix = assignment_metric.to_cost_matrix(score_matrix)
     row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
     matches: List[Match] = []
@@ -72,8 +115,8 @@ def match_tracks_detections(
     matched_detection_indices = set()
 
     for track_idx, detection_idx in zip(row_indices, col_indices):
-        iou = iou_matrix[track_idx, detection_idx]
-        if iou < iou_threshold:
+        score = score_matrix[track_idx, detection_idx]
+        if not assignment_metric.is_valid_match(score, iou_threshold):
             continue
 
         matches.append((track_idx, detection_idx))
@@ -94,4 +137,10 @@ def match_tracks_detections(
     return matches, unmatched_tracks, unmatched_detections
 
 
-__all__ = ["Match", "compute_iou", "match_tracks_detections"]
+__all__ = [
+    "AssignmentMetric",
+    "DistanceMetric",
+    "Match",
+    "compute_iou",
+    "match_tracks_detections",
+]

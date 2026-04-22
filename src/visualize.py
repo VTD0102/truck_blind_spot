@@ -6,15 +6,16 @@ import cv2
 import numpy as np
 
 try:
-    from .detector import Detection
+    from .common.models import Detection, Track
     from .roi import ROIZone
 except ImportError:
-    from detector import Detection
-    from roi import ROIZone
+    from common.models import Detection, Track  # type: ignore
+    from roi import ROIZone  # type: ignore
 
 
 class BlindSpotVisualizer:
-    """Lớp dùng để vẽ và hiển thị bounding box, ROI và cảnh báo điểm mù."""
+    """Render detections, ROI overlays, and track metadata onto a frame."""
+
     def __init__(
         self,
         normal_color: Tuple[int, int, int] = (0, 200, 0),
@@ -35,15 +36,16 @@ class BlindSpotVisualizer:
         detections: Iterable[Detection],
         roi_zones: Optional[Sequence[ROIZone]] = None,
         copy: bool = True,
+        tracks: Optional[Sequence[Track]] = None,
     ) -> np.ndarray:
-        """Vẽ biểu diễn hình ảnh lên frame."""
+        """Draw detections, ROI overlays, and tracks on a frame."""
+
         output = frame.copy() if copy else frame
 
         if roi_zones:
             self._draw_roi_zones(output, roi_zones)
 
         warning_count = 0
-        # Vẽ các bounding box phát hiện được
         for detection in detections:
             in_roi = getattr(detection, "in_roi", False)
             zone_name = getattr(detection, "zone_name", None)
@@ -63,11 +65,12 @@ class BlindSpotVisualizer:
 
             self._draw_label(output, label, (x1, max(24, y1 - 10)), color)
 
-            # Vẽ điểm tham chiếu của đối tượng (dùng kiểm tra xem có vào ROI không)
             if detection.anchor_point is not None:
                 cv2.circle(output, detection.anchor_point, 5, color, -1)
 
-        # Hiển thị số lượng cảnh báo điểm mù
+        if tracks:
+            self._draw_tracks(output, tracks, roi_zones)
+
         if warning_count > 0:
             self._draw_banner(output, f"CANH BAO DIEM MU: {warning_count}")
 
@@ -91,6 +94,44 @@ class BlindSpotVisualizer:
             text = f"{zone.name} [{zone.risk_level}]"
             self._draw_label(frame, text, label_pos, zone.color)
 
+    def _draw_tracks(
+        self,
+        frame: np.ndarray,
+        tracks: Sequence[Track],
+        roi_zones: Optional[Sequence[ROIZone]],
+    ) -> None:
+        for track in tracks:
+            x1, y1, x2, y2 = self._to_int_bbox(track.bbox)
+            color = self._resolve_track_color(track, roi_zones)
+
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+            self._draw_label(frame, f"ID {track.track_id}", (x1, min(frame.shape[0] - 10, y2 + 22)), color)
+
+            anchor = track.anchor_point or (
+                int(round((x1 + x2) / 2.0)),
+                int(round((y1 + y2) / 2.0)),
+            )
+
+            if track.velocity is None:
+                continue
+
+            vx, vy = track.velocity
+            if abs(vx) <= 0.5 and abs(vy) <= 0.5:
+                continue
+
+            end_point = (
+                int(round(anchor[0] + vx)),
+                int(round(anchor[1] + vy)),
+            )
+            cv2.arrowedLine(
+                frame,
+                anchor,
+                end_point,
+                color,
+                2,
+                tipLength=0.25,
+            )
+
     def _resolve_detection_color(
         self,
         detection: Detection,
@@ -104,10 +145,25 @@ class BlindSpotVisualizer:
                 return zone.color
         return self.warning_color
 
+    def _resolve_track_color(
+        self,
+        track: Track,
+        roi_zones: Optional[Sequence[ROIZone]],
+    ) -> Tuple[int, int, int]:
+        if not track.in_roi or not track.zone_name or not roi_zones:
+            return self.normal_color if not track.in_roi else self.warning_color
+
+        for zone in roi_zones:
+            if zone.name == track.zone_name:
+                return zone.color
+        return self.warning_color
+
     def _draw_banner(self, frame: np.ndarray, text: str) -> None:
-        """Vẽ banner cảnh báo ở góc trên cùng của khung hình."""
         text_size, _ = cv2.getTextSize(
-            text, cv2.FONT_HERSHEY_SIMPLEX, self.font_scale + 0.1, 2
+            text,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            self.font_scale + 0.1,
+            2,
         )
         width = text_size[0] + 20
         height = text_size[1] + 20
@@ -130,10 +186,12 @@ class BlindSpotVisualizer:
         origin: Tuple[int, int],
         color: Tuple[int, int, int],
     ) -> None:
-        """Vẽ background và chữ cho label."""
         x, y = origin
         text_size, baseline = cv2.getTextSize(
-            text, cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, 2
+            text,
+            cv2.FONT_HERSHEY_SIMPLEX,
+            self.font_scale,
+            2,
         )
         top_left = (x, max(0, y - text_size[1] - baseline - 6))
         bottom_right = (x + text_size[0] + 10, y + 4)
@@ -148,3 +206,9 @@ class BlindSpotVisualizer:
             2,
             cv2.LINE_AA,
         )
+
+    @staticmethod
+    def _to_int_bbox(
+        bbox: Tuple[float, float, float, float],
+    ) -> Tuple[int, int, int, int]:
+        return tuple(int(round(value)) for value in bbox)

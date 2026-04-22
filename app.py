@@ -15,7 +15,7 @@ from src.pipeline import BlindSpotPipeline
 PROJECT_ROOT = Path(__file__).resolve().parent
 WINDOW_NAME = "YOLOv9 Blind Spot Demo"
 
-DEFAULT_SOURCE = str(PROJECT_ROOT / "assets" / "videos" / "demo4.mp4")
+DEFAULT_SOURCE = str(PROJECT_ROOT / "assets" / "videos" / "demo.mp4")
 DEFAULT_WEIGHTS = "weights/best_6k.pt"
 DEFAULT_ROI = "configs/roi.json"
 DEFAULT_CLASSES = "configs/classes.yaml"
@@ -126,8 +126,9 @@ def main() -> None:
                         continue
                     break
 
+
                 t0 = time.perf_counter()
-                annotated, _ = pipeline.process_frame(frame)
+                annotated, _, _ = pipeline.process_frame(frame)
                 elapsed = time.perf_counter() - t0
 
                 current_fps = 1.0 / max(elapsed, 1e-6)

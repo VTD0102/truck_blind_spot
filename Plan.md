@@ -6,21 +6,23 @@
 
 ## Trạng Thái Hiện Tại (Baseline)
 
+/
 Codebase hiện có đã hoàn thiện các thành phần sau:
 
-| File | Trạng thái | Ghi chú |
-|------|-----------|---------|
-| `src/detector.py` | ✅ Hoàn thiện | `YOLOv9Detector` + `Detection` dataclass |
-| `src/roi.py` | ✅ Hoàn thiện | `MultiPolygonROI`, multi-zone, risk_level |
-| `src/visualize.py` | ✅ Hoàn thiện | `BlindSpotVisualizer` |
-| `src/pipeline.py` | ✅ Hoàn thiện | `BlindSpotPipeline` orchestrator |
-| `src/tracking/types.py` | ✅ Hoàn thiện | `Track` dataclass, `FloatBBox`, `Velocity` |
+| File                            | Trạng thái    | Ghi chú                                                     |
+| ------------------------------- | ------------- | ----------------------------------------------------------- |
+| `src/detector.py`               | ✅ Hoàn thiện | `YOLOv9Detector` + `Detection` dataclass                    |
+| `src/roi.py`                    | ✅ Hoàn thiện | `MultiPolygonROI`, multi-zone, risk_level                   |
+| `src/visualize.py`              | ✅ Hoàn thiện | `BlindSpotVisualizer`                                       |
+| `src/pipeline.py`               | ✅ Hoàn thiện | `BlindSpotPipeline` orchestrator                            |
+| `src/tracking/types.py`         | ✅ Hoàn thiện | `Track` dataclass, `FloatBBox`, `Velocity`                  |
 | `src/tracking/kalman_filter.py` | ✅ Hoàn thiện | `BoundingBoxKalmanFilter` (8D state: cx,cy,w,h,vx,vy,vw,vh) |
-| `src/tracking/matching.py` | ✅ Hoàn thiện | `match_tracks_detections` (Hungarian + IoU cost matrix) |
-| `src/tracking/track_manager.py` | ✅ Hoàn thiện | `TrackManager` (birth/update/death lifecycle) |
-| `tests/test_tracking_smoke.py` | 🔶 Partial | Smoke test cơ bản, chưa đầy đủ |
+| `src/tracking/matching.py`      | ✅ Hoàn thiện | `match_tracks_detections` (Hungarian + IoU cost matrix)     |
+| `src/tracking/track_manager.py` | ✅ Hoàn thiện | `TrackManager` (birth/update/death lifecycle)               |
+| `tests/test_tracking_smoke.py`  | 🔶 Partial    | Smoke test cơ bản, chưa đầy đủ                              |
 
 **Kết luận**: Toàn bộ Phase 1 đã được code sẵn. Nhiệm vụ còn lại là:
+
 1. **Phase 1**: Polish, integrate Kalman với TrackManager, viết unit tests đầy đủ và docs.
 2. **Phase 2**: Xây dựng `MotionPredictor` module hoàn toàn mới.
 3. **Phase 3**: Tích hợp hệ thống (API, Database, Dashboard).
@@ -28,14 +30,15 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 ---
 
 ## Phase 0: Shared Types & Foundation
-*Mục đích: Định nghĩa ngôn ngữ chung cho toàn bộ hệ thống để đảm bảo tính nhất quán giữa các module.*
+
+_Mục đích: Định nghĩa ngôn ngữ chung cho toàn bộ hệ thống để đảm bảo tính nhất quán giữa các module._
 
 - [x] **Tạo TypeScript/Python type definitions cho**:
-    - `Detection`: bounding box, class, confidence, anchor_point.
-    - `Track`: ID, position, velocity, history.
-    - `KalmanState`: state vector (8D), covariance.
-    - `MotionPrediction`: predicted position, confidence, timestamp.
-    - `AlertEvent`: type, severity, location, timestamp.
+  - `Detection`: bounding box, class, confidence, anchor_point.
+  - `Track`: ID, position, velocity, history.
+  - `KalmanState`: state vector (8D), covariance.
+  - `MotionPrediction`: predicted position, confidence, timestamp.
+  - `AlertEvent`: type, severity, location, timestamp.
 - [x] **Định nghĩa enums**: cho track status, alert levels.
 - [x] **Tạo data transfer objects (DTOs)**.
 - [x] **Tài liệu hóa schema** của tất cả các types.
@@ -52,8 +55,9 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Hiện trạng**: `BoundingBoxKalmanFilter` đã hoàn thiện với 8D state vector `[cx, cy, w, h, vx, vy, vw, vh]`.
 
 **Việc cần làm (polish)**:
-- [ ] Xác nhận `process_noise` và `measurement_noise` mặc định bằng cách chạy với video thực tế
-- [ ] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — hiện tại TrackManager tính velocity thủ công từ anchor points thay vì dùng Kalman state
+
+- [x] Xác nhận `process_noise` và `measurement_noise` mặc định bằng cách chạy với video thực tế
+- [x] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — hiện tại TrackManager tính velocity thủ công từ anchor points thay vì dùng Kalman state
 - [x] Thêm docstring mô tả đơn vị (pixels/frame) và giả thiết mô hình — đã có docstring trong class
 - [x] Kiểm tra edge case: `initiate()` với bbox rất nhỏ — `_clamp_state_size()` xử lý `w,h < 1e-6`
 
@@ -68,8 +72,9 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Hiện trạng**: `match_tracks_detections()` dùng `scipy.optimize.linear_sum_assignment` với IoU cost matrix. Đã hoàn thiện.
 
 **Việc cần làm (polish)**:
-- [ ] Thêm optional `distance_metric` parameter để sau này có thể swap IoU với Mahalanobis distance (khi tích hợp Kalman prediction)
-- [ ] Thêm unit test cho edge cases: 0 tracks + N detections, N tracks + 0 detections, perfect overlap, zero overlap
+
+- [x] Thêm optional `distance_metric` parameter để sau này có thể swap IoU với Mahalanobis distance (khi tích hợp Kalman prediction)
+- [x] Thêm unit test cho edge cases: 0 tracks + N detections, N tracks + 0 detections, perfect overlap, zero overlap
 - [x] Thêm docstring giải thích cost matrix construction — đã có trong `matching.py`
 
 **Không cần thay đổi**: Logic `linear_sum_assignment` + IoU gating đã đúng.
@@ -83,19 +88,21 @@ Codebase hiện có đã hoàn thiện các thành phần sau:
 **Hiện trạng**: `TrackManager` quản lý lifecycle (birth/update/death) với `iou_threshold`, `max_misses`, `min_hits`. Velocity được tính thủ công từ anchor point delta.
 
 **Việc cần làm (integration)**:
-- [ ] Tích hợp `BoundingBoxKalmanFilter` vào `Track`: mỗi track sở hữu một instance Kalman filter riêng
-- [ ] Thêm field `kalman: BoundingBoxKalmanFilter` vào `Track` dataclass trong `types.py`
+
+- [x] Tích hợp `BoundingBoxKalmanFilter` vào `Track`: mỗi track sở hữu một instance Kalman filter riêng
+- [x] Thêm field `kalman: BoundingBoxKalmanFilter` vào `Track` dataclass trong `types.py`
   - Dùng `field(default_factory=BoundingBoxKalmanFilter)` hoặc khởi tạo trong `TrackManager._create_track()`
-- [ ] Trong `_create_track()`: gọi `track.kalman.initiate(detection.bbox)`
-- [ ] Trong `_update_track()`: gọi `track.kalman.update(detection.bbox)` và dùng Kalman bbox thay vì raw detection bbox
-- [ ] Trong `_increment_track_ages()`: gọi `track.kalman.predict()` để dự đoán next bbox trước khi matching
-- [ ] Trong matching: truyền Kalman-predicted bbox thay vì current bbox vào `match_tracks_detections()`
-- [ ] Lấy `(vx, vy)` từ Kalman state thay vì tính thủ công từ anchor delta
-- [ ] Cập nhật `Track.velocity` từ `kalman.state[4,0]` và `kalman.state[5,0]`
+- [x] Trong `_create_track()`: gọi `track.kalman.initiate(detection.bbox)`
+- [x] Trong `_update_track()`: gọi `track.kalman.update(detection.bbox)` và dùng Kalman bbox thay vì raw detection bbox
+- [x] Trong `_increment_track_ages()`: gọi `track.kalman.predict()` để dự đoán next bbox trước khi matching
+- [x] Trong matching: truyền Kalman-predicted bbox thay vì current bbox vào `match_tracks_detections()`
+- [x] Lấy `(vx, vy)` từ Kalman state thay vì tính thủ công từ anchor delta
+- [x] Cập nhật `Track.velocity` từ `kalman.state[4,0]` và `kalman.state[5,0]`
 
 **Ưu tiên**: Đây là task tích hợp quan trọng nhất của Phase 1.
 
 **Sơ đồ tích hợp**:
+
 ```
 Frame N:
   1. kalman.predict()  → predicted_bbox cho mỗi track hiện có
@@ -110,16 +117,17 @@ Frame N:
 ### 1.4 — Final Polish & Docs
 
 **Việc cần làm**:
-- [ ] Code review toàn bộ `src/tracking/` module
-- [x] Đảm bảo `src/tracking/__init__.py` export đầy đủ — `types.py` hiện re-export từ `common`  
-- [ ] ⚠️ File `src/tracking/init.py` vẫn còn tồn tại (tên sai, cần kiểm tra)
-- [ ] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
-  - [ ] Kalman filter: `initiate → predict → update` cycle
-  - [ ] Hungarian: edge cases (0 tracks, 0 detections, no overlap)
-  - [ ] TrackManager: track birth confirmation (min_hits), track death (max_misses)
-  - [ ] Full integration: 3 detections → track creation → next frame match
-- [ ] Update `CLAUDE.md` thêm section về `src/tracking/` module
-- [ ] Chạy `python -m pytest tests/ -v` để validate
+
+- [x] Code review toàn bộ `src/tracking/` module
+- [x] Đảm bảo `src/tracking/__init__.py` export đầy đủ — `types.py` hiện re-export từ `common`
+- [x] ⚠️ File `src/tracking/init.py` vẫn còn tồn tại (tên sai, cần kiểm tra)
+- [x] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
+  - [x] Kalman filter: `initiate → predict → update` cycle
+  - [x] Hungarian: edge cases (0 tracks, 0 detections, no overlap)
+  - [x] TrackManager: track birth confirmation (min_hits), track death (max_misses)
+  - [x] Full integration: 3 detections → track creation → next frame match
+- [x] Update `CLAUDE.md` thêm section về `src/tracking/` module
+- [x] Chạy `python -m pytest tests/ -v` để validate
 
 ---
 
@@ -128,14 +136,16 @@ Frame N:
 **File**: `src/pipeline.py` — cần update `BlindSpotPipeline`
 
 **Việc cần làm**:
-- [ ] Import `TrackManager` vào `pipeline.py` — hiện tại chưa có
-- [ ] Thêm `TrackManager` instance vào `BlindSpotPipeline.__init__()`
-- [ ] Cập nhật `process_frame()`: sau khi có `detections`, gọi `track_manager.update(detections)`
-- [ ] `process_frame()` trả về `(annotated_frame, detections, active_tracks)` hoặc embed track info vào detections
-- [ ] Cập nhật `BlindSpotVisualizer.draw()` để hiển thị track ID và velocity vector trên frame
-- [ ] Cập nhật `app.py` CLI để pass track results
+
+- [x] Import `TrackManager` vào `pipeline.py` — hiện tại chưa có
+- [x] Thêm `TrackManager` instance vào `BlindSpotPipeline.__init__()`
+- [x] Cập nhật `process_frame()`: sau khi có `detections`, gọi `track_manager.update(detections)`
+- [x] `process_frame()` trả về `(annotated_frame, detections, active_tracks)` hoặc embed track info vào detections
+- [x] Cập nhật `BlindSpotVisualizer.draw()` để hiển thị track ID và velocity vector trên frame
+- [x] Cập nhật `app.py` CLI để pass track results
 
 **Signature mới của `process_frame()`**:
+
 ```python
 def process_frame(
     self, frame: np.ndarray
@@ -179,10 +189,12 @@ class PerspectiveTransform:
 ```
 
 **Calibration**: Cần 4 cặp điểm tương ứng (pixel ↔ thực tế) trên mặt đường để tính `H`. Có thể:
+
 - Đo thủ công từ video gốc (đánh dấu 4 điểm trên mặt đường đã biết khoảng cách)
 - Hoặc ước lượng từ thông số camera (focal length, góc lắp đặt)
 
 **Việc cần làm**:
+
 - [x] Code `PerspectiveTransform` class với `pixel_to_bev` và `bev_to_pixel`
 - [x] Thêm static method `estimate_distance` bằng Pinhole model
 - [x] Thêm field `distance_m: Optional[float]` vào `Detection` và `Track` dataclass
@@ -212,6 +224,7 @@ class VelocityBuffer:
 ```
 
 **Chi tiết implementation**:
+
 - Dùng `collections.deque(maxlen=max_size)` cho timestamps và positions
 - Velocity = linear regression (least squares) trên positions[-window:] — robust hơn finite difference
 - Acceleration = rate of change of velocity qua các cặp consecutive windows
@@ -221,11 +234,12 @@ class VelocityBuffer:
 - **Nếu không có Homography (fallback)**: push raw pixel → velocity tính bằng px/s (chấp nhận sai lệch)
 
 **Việc cần làm**:
+
 - [x] Code `VelocityBuffer` class sử dụng `deque`
 - [x] Implement linear regression (`get_velocity`) và quadratic fit (`get_acceleration`)
 - [x] Integrate `VelocityBuffer` vào `Track` dataclass
 - [x] Cập nhật `TrackManager._update_track()` để tự động gọi `track.velocity_buffer.push(...)`
-- [x] Thay thế Kalman velocity bằng buffer velocity nếu buffer đủ dữ liệu (≥ 5 frames)
+- [ ] Thay thế Kalman velocity bằng buffer velocity nếu buffer đủ dữ liệu (≥ 5 frames)
 
 ---
 
@@ -262,6 +276,7 @@ class TrajectoryExtrapolator:
 > **Lưu ý**: Khi không có Homography (chưa calibrate camera), hệ thống vẫn chạy được nhưng prediction sẽ kém chính xác cho horizon > 0.5s. Đây là tradeoff có chủ đích cho MVP.
 
 **Confidence score formula** — tổng hợp từ 3 thành phần:
+
 ```
 confidence = w1 * tracking_quality
            + w2 * detection_consistency
@@ -276,8 +291,9 @@ motion_smoothness     = 1 / (1 + velocity_variance)      # lower variance = high
 - Threshold alert: `confidence < 0.4` → LOW risk, `< 0.7` → MEDIUM, `>= 0.7` → HIGH (nếu in ROI)
 
 **Việc cần làm**:
+
 - [x] Code `TrajectoryExtrapolator` class
-- [x] Implement logic nội suy x(t) = x0 + vx*t + 0.5*ax*t^2
+- [x] Implement logic nội suy x(t) = x0 + vx*t + 0.5*ax\*t^2
 - [x] Xây dựng hàm tính `confidence` với kết hợp tracking, consistency, smoothness, và decay
 - [x] Cập nhật `extrapolate()` để gọi hàm warp trên `PerspectiveTransform` nếu được truyền vào (BEV transform)
 
@@ -312,6 +328,7 @@ class MotionPredictor:
 ```
 
 **Dataclass output**:
+
 ```python
 @dataclass
 class PredictedPoint:
@@ -330,11 +347,13 @@ class MotionPrediction:
 ```
 
 **Motion validation**:
+
 - Max velocity sanity check: > 500 px/frame → likely noise, giảm confidence
 - Direction consistency check: sudden 90° direction change trong 2 frames → decreased confidence
 - Bounding box size consistency: rapid size change → object may have been lost/reassigned
 
 **Việc cần làm**:
+
 - [ ] Code `MotionPredictor` wrapper
 - [ ] Định nghĩa `MotionPrediction` và `PredictedPoint` dataclass
 - [ ] Cài đặt `predict_trajectory()` nội suy quỹ đạo ở `0.5s, 1.0s, 2.0s`
@@ -346,6 +365,7 @@ class MotionPrediction:
 ### 2.4 — Final Polish & Docs (Phase 2)
 
 **Việc cần làm**:
+
 - [ ] Validate predictions với video thực tế: vẽ predicted trajectory lên frame
 - [ ] Tuning hyperparameters:
   - `max_size` của buffer: test 5 vs 10 vs 15 frames
@@ -366,6 +386,7 @@ class MotionPrediction:
 **Files cần update**: `src/pipeline.py`, `src/visualize.py`, `app.py`
 
 **Việc cần làm**:
+
 - [ ] Thêm `MotionPredictor` vào `BlindSpotPipeline.__init__()`
 - [ ] Trong `process_frame()`:
   ```python
@@ -388,17 +409,18 @@ class MotionPrediction:
 ---
 
 ## Phase 3: System Integration (PRIORITY)
-*Mục đích: Tích hợp toàn bộ hệ thống thành một pipeline hoàn chỉnh.*
+
+_Mục đích: Tích hợp toàn bộ hệ thống thành một pipeline hoàn chỉnh._
 
 - [ ] **Kết nối YOLOv9 detector với tracking system**.
 - [ ] **Pipeline flow**:
-    - Input video frames
-    - YOLOv9 inference
-    - Hungarian matching
-    - Kalman filter update
-    - Track management
-    - Motion prediction
-    - Alert generation
+  - Input video frames
+  - YOLOv9 inference
+  - Hungarian matching
+  - Kalman filter update
+  - Track management
+  - Motion prediction
+  - Alert generation
 - [ ] **API endpoints** để gửi video/frames.
 - [ ] **Message queue** (nếu cần realtime processing).
 - [ ] **Database integration** (lưu trữ tracks, alerts).
@@ -410,21 +432,22 @@ class MotionPrediction:
 ---
 
 ## Phase 4: Mock Data & Validation
-*Mục đích: Tạo dữ liệu giả để testing và development.*
+
+_Mục đích: Tạo dữ liệu giả để testing và development._
 
 - [ ] **Tạo mock camera frames** (video test data).
 - [ ] **Mock YOLOv9 detection outputs**:
-    - Simulated bounding boxes
-    - Confidence scores
-    - Class predictions
+  - Simulated bounding boxes
+  - Confidence scores
+  - Class predictions
 - [ ] **Mock vehicle trajectories**:
-    - Different speeds (0-100 km/h)
-    - Different paths (straight, turn, stop)
+  - Different speeds (0-100 km/h)
+  - Different paths (straight, turn, stop)
 - [ ] **Mock scenarios**:
-    - Vehicle enters blind spot
-    - Vehicle exits blind spot
-    - Multiple vehicles tracking
-    - False positives/negatives
+  - Vehicle enters blind spot
+  - Vehicle exits blind spot
+  - Multiple vehicles tracking
+  - False positives/negatives
 - [ ] **Dữ liệu CSV/JSON** cho historical testing.
 - [ ] **Tạo unit test datasets**.
 
@@ -487,6 +510,7 @@ Phase 0 (Shared Types)  →  Phase 3 (Integration)  →  Phase 4 (Mock Data)
 ## Testing Strategy
 
 ### Unit Tests (pytest)
+
 ```bash
 python -m pytest tests/ -v
 python -m pytest tests/test_kalman.py -v          # Kalman filter cycle
@@ -496,6 +520,7 @@ python -m pytest tests/test_motion_predictor.py -v  # prediction accuracy
 ```
 
 ### Integration Test (end-to-end)
+
 ```bash
 # Chạy pipeline hoàn chỉnh với video test
 python app.py --source assets/videos/demo.mp4 --show
@@ -508,15 +533,15 @@ python app.py --source assets/videos/demo.mp4 --output outputs/tracked_demo.mp4
 
 ## Tuning Parameters Reference
 
-| Parameter | Default | Range | Ảnh hưởng |
-|-----------|---------|-------|-----------|
-| `kalman.process_noise` | 1e-2 | 1e-4 – 1e-1 | Cao → trust detection hơn; thấp → trust prediction hơn |
-| `kalman.measurement_noise` | 1e-1 | 1e-2 – 1.0 | Cao → smooth bbox; thấp → responsive to detections |
-| `track_manager.iou_threshold` | 0.3 | 0.1 – 0.6 | Thấp → match aggressively; cao → only match high overlap |
-| `track_manager.max_misses` | 5 | 2 – 15 | Cao → tracks persist longer through occlusion |
-| `track_manager.min_hits` | 2 | 1 – 5 | Cao → fewer false tracks (need multiple detections to confirm) |
-| `velocity_buffer.max_size` | 10 | 5 – 20 | Cao → smoother velocity but slower to react to changes |
-| `motion.alert_threshold` | 0.6 | 0.4 – 0.8 | Thấp → more alerts (higher sensitivity, more false positives) |
+| Parameter                     | Default | Range       | Ảnh hưởng                                                      |
+| ----------------------------- | ------- | ----------- | -------------------------------------------------------------- |
+| `kalman.process_noise`        | 1e-2    | 1e-4 – 1e-1 | Cao → trust detection hơn; thấp → trust prediction hơn         |
+| `kalman.measurement_noise`    | 1e-1    | 1e-2 – 1.0  | Cao → smooth bbox; thấp → responsive to detections             |
+| `track_manager.iou_threshold` | 0.3     | 0.1 – 0.6   | Thấp → match aggressively; cao → only match high overlap       |
+| `track_manager.max_misses`    | 5       | 2 – 15      | Cao → tracks persist longer through occlusion                  |
+| `track_manager.min_hits`      | 2       | 1 – 5       | Cao → fewer false tracks (need multiple detections to confirm) |
+| `velocity_buffer.max_size`    | 10      | 5 – 20      | Cao → smoother velocity but slower to react to changes         |
+| `motion.alert_threshold`      | 0.6     | 0.4 – 0.8   | Thấp → more alerts (higher sensitivity, more false positives)  |
 
 ---
 
@@ -541,13 +566,15 @@ python app.py --source assets/videos/demo.mp4 --output outputs/tracked_demo.mp4
 ---
 
 ## Phase 5: Ego-Motion Compensation (Future — Nâng cao)
-*Mục đích: Xử lý chính xác các tình huống nguy hiểm nhất — xe tải rẽ phải/trái, phanh gấp, chuyển làn — nơi mà Relative Tracking (Phase 2) cho kết quả sai lệch.*
+
+_Mục đích: Xử lý chính xác các tình huống nguy hiểm nhất — xe tải rẽ phải/trái, phanh gấp, chuyển làn — nơi mà Relative Tracking (Phase 2) cho kết quả sai lệch._
 
 > **Tại sao Phase này quan trọng?** Thống kê tai nạn cho thấy phần lớn va chạm điểm mù xảy ra khi xe tải **rẽ phải** — chính là lúc Relative Tracking bị sai nhiều nhất vì camera đang xoay. Phase 1-4 xử lý tốt khi đi thẳng (80% thời gian), Phase 5 xử lý 20% tình huống còn lại nhưng chiếm phần lớn rủi ro.
 
 ### Bài toán 2 luồng chuyển động
 
 Khi xe tải rẽ phải:
+
 ```
 Trên đời thực:                     Trên camera (pixel):
 ┌─────────────────┐                ┌─────────────────┐
@@ -564,12 +591,12 @@ Trên đời thực:                     Trên camera (pixel):
 
 **Cách tiếp cận từ dễ → khó:**
 
-| Phương pháp | Độ khó | Mô tả |
-|---|---|---|
-| **Background Optical Flow** | ⭐⭐ | Tính optical flow của background (phần không có object). Nếu flow đồng nhất lớn → xe tải đang xoay/phanh |
-| **Vanishing Point Tracking** | ⭐⭐⭐ | Theo dõi điểm hội tụ (vanishing point) trên frame. VP dịch chuyển = xe tải đang rẽ |
-| **IMU Sensor** | ⭐ | Gắn cảm biến gia tốc rẻ tiền (~50k VND). Cho biết trực tiếp gia tốc góc và gia tốc tuyến tính |
-| **CAN Bus** | ⭐⭐⭐⭐ | Đọc dữ liệu OBD-II của xe: vận tốc bánh, góc lái. Chính xác nhất nhưng cần hardware adapter |
+| Phương pháp                  | Độ khó   | Mô tả                                                                                                    |
+| ---------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| **Background Optical Flow**  | ⭐⭐     | Tính optical flow của background (phần không có object). Nếu flow đồng nhất lớn → xe tải đang xoay/phanh |
+| **Vanishing Point Tracking** | ⭐⭐⭐   | Theo dõi điểm hội tụ (vanishing point) trên frame. VP dịch chuyển = xe tải đang rẽ                       |
+| **IMU Sensor**               | ⭐       | Gắn cảm biến gia tốc rẻ tiền (~50k VND). Cho biết trực tiếp gia tốc góc và gia tốc tuyến tính            |
+| **CAN Bus**                  | ⭐⭐⭐⭐ | Đọc dữ liệu OBD-II của xe: vận tốc bánh, góc lái. Chính xác nhất nhưng cần hardware adapter              |
 
 **Đề xuất cho MVP Phase 5**: Bắt đầu với **Background Optical Flow** (chỉ cần OpenCV, không cần hardware):
 

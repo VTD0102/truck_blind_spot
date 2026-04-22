@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Callable, List, Protocol, Sequence
 
+from .kalman_filter import BoundingBoxKalmanFilter
 from .motion.velocity_buffer import VelocityBuffer
 from .matching import match_tracks_detections
 from .types import Point, Track, TrackStatus
@@ -73,6 +74,9 @@ class TrackManager:
     def _increment_track_ages(self) -> None:
         for track in self.tracks:
             track.age += 1
+            if track.kalman is not None:
+                track.bbox = track.kalman.predict()
+                track.velocity = track.kalman.get_velocity()
 
     def _create_track(self, detection: TrackDetection) -> Track:
         status = (
@@ -80,9 +84,11 @@ class TrackManager:
             if self.min_hits <= 1
             else TrackStatus.TENTATIVE
         )
+        kalman = BoundingBoxKalmanFilter()
+        initial_bbox = kalman.initiate(detection.bbox)
         track = Track(
             track_id=self._next_track_id,
-            bbox=detection.bbox,
+            bbox=initial_bbox,
             confidence=detection.confidence,
             class_id=detection.class_id,
             class_name=detection.class_name,
@@ -91,6 +97,8 @@ class TrackManager:
             misses=0,
             is_confirmed=self.min_hits <= 1,
             status=status,
+            velocity=kalman.get_velocity(),
+            kalman=kalman,
             anchor_point=detection.anchor_point,
             in_roi=detection.in_roi,
             zone_name=detection.zone_name,
@@ -109,9 +117,11 @@ class TrackManager:
         return track
 
     def _update_track(self, track: Track, detection: TrackDetection) -> None:
-        previous_anchor = track.anchor_point
+        if track.kalman is None:
+            track.kalman = BoundingBoxKalmanFilter()
+            track.kalman.initiate(track.bbox)
 
-        track.bbox = detection.bbox
+        track.bbox = track.kalman.update(detection.bbox)
         track.confidence = detection.confidence
         track.class_id = detection.class_id
         track.class_name = detection.class_name
@@ -130,11 +140,7 @@ class TrackManager:
             if track.is_confirmed
             else TrackStatus.TENTATIVE
         )
-
-        if previous_anchor is not None and detection.anchor_point is not None:
-            dx = float(detection.anchor_point[0] - previous_anchor[0])
-            dy = float(detection.anchor_point[1] - previous_anchor[1])
-            track.velocity = (dx, dy)
+        track.velocity = track.kalman.get_velocity()
 
         timestamp = float(self._time_provider())
         self._update_velocity_buffer(track, detection.anchor_point, timestamp)
@@ -154,12 +160,6 @@ class TrackManager:
             track.velocity_buffer = VelocityBuffer()
 
         track.velocity_buffer.push(point, timestamp)
-        if len(track.velocity_buffer) < 5:
-            return
-
-        velocity = track.velocity_buffer.get_smoothed_velocity(window=5)
-        if velocity is not None:
-            track.velocity = velocity
 
     def _mark_missed(self, track: Track) -> None:
         track.misses += 1

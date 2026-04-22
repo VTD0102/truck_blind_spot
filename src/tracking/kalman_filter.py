@@ -4,9 +4,11 @@ from typing import Tuple
 
 import numpy as np
 
-from .types import FloatBBox
+from .types import FloatBBox, Velocity
 
 CxCyWhBBox = Tuple[float, float, float, float]
+DEFAULT_PROCESS_NOISE = 1.0
+DEFAULT_MEASUREMENT_NOISE = 10.0
 
 
 class BoundingBoxKalmanFilter:
@@ -22,12 +24,25 @@ class BoundingBoxKalmanFilter:
     def __init__(
         self,
         dt: float = 1.0,
-        process_noise: float = 1e-2,
-        measurement_noise: float = 1e-1,
+        process_noise: float = DEFAULT_PROCESS_NOISE,
+        measurement_noise: float = DEFAULT_MEASUREMENT_NOISE,
     ) -> None:
         self.dt = float(dt)
         self.process_noise = float(process_noise)
         self.measurement_noise = float(measurement_noise)
+
+        if self.dt <= 0.0:
+            raise ValueError(f"dt must be positive (received {dt}).")
+        if self.process_noise <= 0.0:
+            raise ValueError(
+                "process_noise must be positive. "
+                "Image-space tracking assumes non-zero motion uncertainty."
+            )
+        if self.measurement_noise <= 0.0:
+            raise ValueError(
+                "measurement_noise must be positive. "
+                "Detector boxes always include some localization noise."
+            )
 
         self.state = np.zeros((8, 1), dtype=np.float64)
         self.covariance = np.eye(8, dtype=np.float64)
@@ -42,10 +57,10 @@ class BoundingBoxKalmanFilter:
         self.measurement[2, 2] = 1.0
         self.measurement[3, 3] = 1.0
 
+        # The defaults assume modest per-frame motion drift (~1 px std dev)
+        # and noisier detector boxes (~3 px std dev) in image coordinates.
         self.process_covariance = np.eye(8, dtype=np.float64) * self.process_noise
-        self.measurement_covariance = (
-            np.eye(4, dtype=np.float64) * self.measurement_noise
-        )
+        self.measurement_covariance = np.eye(4, dtype=np.float64) * self.measurement_noise
         self.identity = np.eye(8, dtype=np.float64)
 
         self._is_initialized = False
@@ -113,6 +128,12 @@ class BoundingBoxKalmanFilter:
         h = float(self.state[3, 0])
         return self.cxcywh_to_xyxy((cx, cy, w, h))
 
+    def get_velocity(self) -> Velocity:
+        """Return the current ``(vx, vy)`` estimate in pixels per frame."""
+
+        self._ensure_initialized()
+        return (float(self.state[4, 0]), float(self.state[5, 0]))
+
     @staticmethod
     def xyxy_to_cxcywh(bbox_xyxy: FloatBBox) -> CxCyWhBBox:
         """Convert ``(x1, y1, x2, y2)`` box format to ``(cx, cy, w, h)``."""
@@ -147,4 +168,9 @@ class BoundingBoxKalmanFilter:
         self.state[3, 0] = max(1e-6, float(self.state[3, 0]))
 
 
-__all__ = ["BoundingBoxKalmanFilter", "CxCyWhBBox"]
+__all__ = [
+    "BoundingBoxKalmanFilter",
+    "CxCyWhBBox",
+    "DEFAULT_MEASUREMENT_NOISE",
+    "DEFAULT_PROCESS_NOISE",
+]
