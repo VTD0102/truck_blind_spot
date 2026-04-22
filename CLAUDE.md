@@ -140,10 +140,27 @@ See `Plan.md` for the tracking/motion-prediction roadmap:
 - **Phase 1** — complete; remaining work is mostly documentation/tuning follow-up around tracking defaults.
 - **Phase 2** — new `src/tracking/motion/` (VelocityBuffer, TrajectoryExtrapolator, MotionPredictor) with confidence scoring and predicted-trajectory visualization.
 
+## Phase 2 — Motion Prediction (`src/tracking/motion/`)
+
+| File | Purpose |
+|------|---------|
+| `perspective.py` | `PerspectiveTransform` — Inverse Perspective Mapping (IPM) to Bird's-Eye View (BEV). `pixel_to_bev()`, `bev_to_pixel()`, `estimate_distance()`. |
+| `velocity_buffer.py` | `VelocityBuffer` — Rolling buffer of (position, timestamp) pairs. `get_velocity()`, `get_acceleration()`, `get_smoothed_velocity()` via least-squares regression. |
+| `extrapolator.py` | `TrajectoryExtrapolator` — Quadratic extrapolation `x(t) = x0 + vx*t + 0.5*ax*t²`. `compute_confidence()` = weighted (tracking_quality + consistency + smoothness) × time-decay. |
+| `predictor.py` | `MotionPredictor` — Wrapper combining the above. `update()` → `MotionPrediction`, `predict_trajectory()`, `should_alert()`. Motion validation: max velocity sanity (500 px/frame), 90° direction change, bbox size consistency. |
+
+**Key dataclasses** (in `src/common/models.py`):
+- `PredictedPoint(position, timestamp_s, confidence)`
+- `MotionPrediction(track_id, trajectory, overall_confidence, alert_level, velocity_px_per_s, acceleration_px_per_s2)`
+
+**Alert levels**: `overall_confidence < 0.4` → "low", `< 0.7` → "medium", `≥ 0.7` → "high" (only when `track.in_roi`).
+
+**Velocity source priority**: buffer smoothed velocity (≥5 frames) > Kalman velocity.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **truck_blind_spot** (2257 symbols, 7165 relationships, 190 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **phase2-motion** (2387 symbols, 7620 relationships, 201 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -159,7 +176,7 @@ This project is indexed by GitNexus as **truck_blind_spot** (2257 symbols, 7165 
 
 1. `gitnexus_query({query: "<error or symptom>"})` — find execution flows related to the issue
 2. `gitnexus_context({name: "<suspect function>"})` — see all callers, callees, and process participation
-3. `READ gitnexus://repo/truck_blind_spot/process/{processName}` — trace the full execution flow step by step
+3. `READ gitnexus://repo/phase2-motion/process/{processName}` — trace the full execution flow step by step
 4. For regressions: `gitnexus_detect_changes({scope: "compare", base_ref: "main"})` — see what your branch changed
 
 ## When Refactoring
@@ -198,10 +215,10 @@ This project is indexed by GitNexus as **truck_blind_spot** (2257 symbols, 7165 
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/truck_blind_spot/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/truck_blind_spot/clusters` | All functional areas |
-| `gitnexus://repo/truck_blind_spot/processes` | All execution flows |
-| `gitnexus://repo/truck_blind_spot/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/phase2-motion/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/phase2-motion/clusters` | All functional areas |
+| `gitnexus://repo/phase2-motion/processes` | All execution flows |
+| `gitnexus://repo/phase2-motion/process/{name}` | Step-by-step execution trace |
 
 ## Self-Check Before Finishing
 
