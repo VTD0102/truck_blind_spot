@@ -366,7 +366,7 @@ class MotionPrediction:
 
 **Việc cần làm**:
 
-- [ ] Validate predictions với video thực tế: vẽ predicted trajectory lên frame
+- [x] Validate predictions với video thực tế: vẽ predicted trajectory lên frame
 - [ ] Tuning hyperparameters:
   - `max_size` của buffer: test 5 vs 10 vs 15 frames
   - `prediction_horizons_s`: kiểm tra 0.5s, 1.0s, 2.0s
