@@ -41,6 +41,8 @@ class MotionPredictor:
         )
         # Cache vận tốc frame trước để kiểm tra tính nhất quán hướng di chuyển
         self._prev_velocity: Dict[int, tuple] = {}
+        # Cache diện tích bbox frame trước để kiểm tra tính nhất quán kích thước
+        self._prev_bbox_area: Dict[int, float] = {}
 
     def update(self, track: Track, timestamp: float) -> MotionPrediction:
         """Đẩy dữ liệu mới nhất và trả về MotionPrediction đầy đủ.
@@ -195,6 +197,7 @@ class MotionPredictor:
         Kiểm tra:
         1. Tốc độ quá lớn (> MAX_VELOCITY_PX_PER_FRAME) → nhiễu.
         2. Thay đổi hướng đột ngột (> 90°) so với frame trước.
+        3. Kích thước bbox thay đổi đột ngột (> 3x) → tái định danh đáng ngờ.
 
         Returns:
             Giá trị phạt trong khoảng [0.0, 0.5].
@@ -218,6 +221,16 @@ class MotionPredictor:
                 angle_change = math.acos(dot)
                 if angle_change > DIRECTION_CHANGE_THRESHOLD:
                     penalty += 0.2
+
+        # Kiểm tra tính nhất quán kích thước bbox
+        x1, y1, x2, y2 = track.bbox
+        curr_area = max(0.0, (x2 - x1) * (y2 - y1))
+        prev_area = self._prev_bbox_area.get(track.track_id)
+        if prev_area is not None and prev_area > 0:
+            ratio = curr_area / prev_area if curr_area > prev_area else prev_area / curr_area
+            if ratio > 3.0:  # diện tích thay đổi > 3x → tái định danh đáng ngờ
+                penalty += 0.15
+        self._prev_bbox_area[track.track_id] = curr_area
 
         return min(penalty, 0.5)  # giới hạn tối đa 0.5 để không triệt tiêu hoàn toàn confidence
 
