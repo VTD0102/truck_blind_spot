@@ -239,7 +239,7 @@ class VelocityBuffer:
 - [x] Implement linear regression (`get_velocity`) và quadratic fit (`get_acceleration`)
 - [x] Integrate `VelocityBuffer` vào `Track` dataclass
 - [x] Cập nhật `TrackManager._update_track()` để tự động gọi `track.velocity_buffer.push(...)`
-- [ ] Thay thế Kalman velocity bằng buffer velocity nếu buffer đủ dữ liệu (≥ 5 frames)
+- [x] Thay thế Kalman velocity bằng buffer velocity nếu buffer đủ dữ liệu (≥ 5 frames)
 
 ---
 
@@ -354,11 +354,11 @@ class MotionPrediction:
 
 **Việc cần làm**:
 
-- [ ] Code `MotionPredictor` wrapper
-- [ ] Định nghĩa `MotionPrediction` và `PredictedPoint` dataclass
-- [ ] Cài đặt `predict_trajectory()` nội suy quỹ đạo ở `0.5s, 1.0s, 2.0s`
-- [ ] Thêm logic motion validation (sanity check cho max velocity/direction)
-- [ ] Thêm custom alert generation rules logic cho ROI zone
+- [x] Code `MotionPredictor` wrapper
+- [x] Định nghĩa `MotionPrediction` và `PredictedPoint` dataclass
+- [x] Cài đặt `predict_trajectory()` nội suy quỹ đạo ở `0.5s, 1.0s, 2.0s`
+- [x] Thêm logic motion validation (sanity check cho max velocity/direction)
+- [x] Thêm custom alert generation rules logic cho ROI zone
 
 ---
 
@@ -372,12 +372,12 @@ class MotionPrediction:
   - `prediction_horizons_s`: kiểm tra 0.5s, 1.0s, 2.0s
   - `alert_confidence_threshold`: chỉnh từ 0.4 → 0.7 tùy false positive rate
 - [x] Viết unit tests cho `VelocityBuffer`, `TrajectoryExtrapolator`
-- [ ] Viết unit tests cho `MotionPredictor`
+- [x] Viết unit tests cho `MotionPredictor`
   - Test với constant velocity motion → verify linear extrapolation
   - Test với accelerating motion → verify quadratic extrapolation
   - Test confidence decay với increasing prediction horizon
 - [x] Viết docstrings cho tất cả public methods trong VelocityBuffer và Extrapolator
-- [ ] Update `CLAUDE.md` với section Phase 2
+- [x] Update `CLAUDE.md` với section Phase 2
 
 ---
 
@@ -387,24 +387,24 @@ class MotionPrediction:
 
 **Việc cần làm**:
 
-- [ ] Thêm `MotionPredictor` vào `BlindSpotPipeline.__init__()`
-- [ ] Trong `process_frame()`:
+- [x] Thêm `MotionPredictor` vào `BlindSpotPipeline.__init__()`
+- [x] Trong `process_frame()`:
   ```python
   current_time = time.time()
   tracks = self.track_manager.update(detections)
   predictions = {t.track_id: self.motion_predictor.update(t, current_time) for t in tracks}
   ```
-- [ ] Cập nhật `BlindSpotVisualizer`:
+- [x] Cập nhật `BlindSpotVisualizer`:
   - Vẽ predicted trajectory points (dots hoặc dashed line) trên frame
   - Hiển thị confidence score và alert level bên cạnh track ID
   - Color coding: xanh = safe, vàng = medium risk, đỏ = high risk
-- [ ] Alert generation logic trong `app.py`:
+- [x] Alert generation logic trong `app.py`:
   - Log alert khi `prediction.alert_level in ["medium", "high"]` và `track.in_roi`
   - Optional: sound alert hoặc overlay warning banner
 - [ ] Full pipeline benchmark:
   - Target: tổng latency ≤ 35ms/frame (≥ 28 FPS) trên CPU
   - Profile từng bước: detection, tracking, prediction, visualization
-- [ ] Cập nhật CLI args trong `app.py`: `--prediction-horizon`, `--alert-threshold`
+- [x] Cập nhật CLI args trong `app.py`: `--prediction-horizon`, `--alert-threshold`
 
 ---
 
