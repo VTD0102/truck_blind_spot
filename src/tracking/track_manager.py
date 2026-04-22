@@ -145,6 +145,12 @@ class TrackManager:
         timestamp = float(self._time_provider())
         self._update_velocity_buffer(track, detection.anchor_point, timestamp)
 
+        # Use smoothed buffer velocity once we have enough history
+        if track.velocity_buffer is not None and len(track.velocity_buffer) >= 5:
+            buf_vel = track.velocity_buffer.get_smoothed_velocity()
+            if buf_vel is not None:
+                track.velocity = buf_vel
+
         self._append_trace(track, detection.anchor_point)
 
     def _update_velocity_buffer(
