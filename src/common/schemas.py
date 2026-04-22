@@ -29,8 +29,13 @@ TYPE_SCHEMAS: Dict[str, SchemaDefinition] = {
         "is_confirmed": "bool",
         "status": "TrackStatus",
         "velocity": "tuple[float, float] | None",
+        "kalman": "BoundingBoxKalmanFilter | None",
         "distance_m": "float | None",
         "velocity_buffer": "VelocityBufferLike | None",
+        "in_roi": "bool",
+        "anchor_point": "tuple[int, int] | None",
+        "zone_name": "str | None",
+        "risk_level": "str | None",
         "trace": "list[tuple[int, int]]",
     },
     "KalmanState": {

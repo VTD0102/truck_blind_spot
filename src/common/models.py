@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Protocol, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Protocol, Tuple
 
 from .enums import AlertLevel, AlertType, TrackStatus
+
+if TYPE_CHECKING:
+    from src.tracking.kalman_filter import BoundingBoxKalmanFilter
 
 FloatBBox = Tuple[float, float, float, float]
 Point = Tuple[int, int]
@@ -69,6 +72,7 @@ class Track:
     status: TrackStatus = TrackStatus.TENTATIVE
 
     velocity: Optional[Velocity] = None
+    kalman: Optional[BoundingBoxKalmanFilter] = None
     velocity_buffer: Optional[VelocityBufferLike] = None
     distance_m: Optional[float] = None
     in_roi: bool = False

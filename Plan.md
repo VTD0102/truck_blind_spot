@@ -56,8 +56,8 @@ _Mục đích: Định nghĩa ngôn ngữ chung cho toàn bộ hệ thống đ�
 
 **Việc cần làm (polish)**:
 
-- [ ] Xác nhận `process_noise` và `measurement_noise` mặc định bằng cách chạy với video thực tế
-- [ ] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — hiện tại TrackManager tính velocity thủ công từ anchor points thay vì dùng Kalman state
+- [x] Xác nhận `process_noise` và `measurement_noise` mặc định bằng cách chạy với video thực tế
+- [x] Thêm method `get_velocity() -> Velocity` để expose `(vx, vy)` từ state vector — hiện tại TrackManager tính velocity thủ công từ anchor points thay vì dùng Kalman state
 - [x] Thêm docstring mô tả đơn vị (pixels/frame) và giả thiết mô hình — đã có docstring trong class
 - [x] Kiểm tra edge case: `initiate()` với bbox rất nhỏ — `_clamp_state_size()` xử lý `w,h < 1e-6`
 
@@ -73,8 +73,8 @@ _Mục đích: Định nghĩa ngôn ngữ chung cho toàn bộ hệ thống đ�
 
 **Việc cần làm (polish)**:
 
-- [ ] Thêm optional `distance_metric` parameter để sau này có thể swap IoU với Mahalanobis distance (khi tích hợp Kalman prediction)
-- [ ] Thêm unit test cho edge cases: 0 tracks + N detections, N tracks + 0 detections, perfect overlap, zero overlap
+- [x] Thêm optional `distance_metric` parameter để sau này có thể swap IoU với Mahalanobis distance (khi tích hợp Kalman prediction)
+- [x] Thêm unit test cho edge cases: 0 tracks + N detections, N tracks + 0 detections, perfect overlap, zero overlap
 - [x] Thêm docstring giải thích cost matrix construction — đã có trong `matching.py`
 
 **Không cần thay đổi**: Logic `linear_sum_assignment` + IoU gating đã đúng.
@@ -89,15 +89,15 @@ _Mục đích: Định nghĩa ngôn ngữ chung cho toàn bộ hệ thống đ�
 
 **Việc cần làm (integration)**:
 
-- [ ] Tích hợp `BoundingBoxKalmanFilter` vào `Track`: mỗi track sở hữu một instance Kalman filter riêng
-- [ ] Thêm field `kalman: BoundingBoxKalmanFilter` vào `Track` dataclass trong `types.py`
+- [x] Tích hợp `BoundingBoxKalmanFilter` vào `Track`: mỗi track sở hữu một instance Kalman filter riêng
+- [x] Thêm field `kalman: BoundingBoxKalmanFilter` vào `Track` dataclass trong `types.py`
   - Dùng `field(default_factory=BoundingBoxKalmanFilter)` hoặc khởi tạo trong `TrackManager._create_track()`
-- [ ] Trong `_create_track()`: gọi `track.kalman.initiate(detection.bbox)`
-- [ ] Trong `_update_track()`: gọi `track.kalman.update(detection.bbox)` và dùng Kalman bbox thay vì raw detection bbox
-- [ ] Trong `_increment_track_ages()`: gọi `track.kalman.predict()` để dự đoán next bbox trước khi matching
-- [ ] Trong matching: truyền Kalman-predicted bbox thay vì current bbox vào `match_tracks_detections()`
-- [ ] Lấy `(vx, vy)` từ Kalman state thay vì tính thủ công từ anchor delta
-- [ ] Cập nhật `Track.velocity` từ `kalman.state[4,0]` và `kalman.state[5,0]`
+- [x] Trong `_create_track()`: gọi `track.kalman.initiate(detection.bbox)`
+- [x] Trong `_update_track()`: gọi `track.kalman.update(detection.bbox)` và dùng Kalman bbox thay vì raw detection bbox
+- [x] Trong `_increment_track_ages()`: gọi `track.kalman.predict()` để dự đoán next bbox trước khi matching
+- [x] Trong matching: truyền Kalman-predicted bbox thay vì current bbox vào `match_tracks_detections()`
+- [x] Lấy `(vx, vy)` từ Kalman state thay vì tính thủ công từ anchor delta
+- [x] Cập nhật `Track.velocity` từ `kalman.state[4,0]` và `kalman.state[5,0]`
 
 **Ưu tiên**: Đây là task tích hợp quan trọng nhất của Phase 1.
 
@@ -118,16 +118,16 @@ Frame N:
 
 **Việc cần làm**:
 
-- [ ] Code review toàn bộ `src/tracking/` module
+- [x] Code review toàn bộ `src/tracking/` module
 - [x] Đảm bảo `src/tracking/__init__.py` export đầy đủ — `types.py` hiện re-export từ `common`
-- [ ] ⚠️ File `src/tracking/init.py` vẫn còn tồn tại (tên sai, cần kiểm tra)
-- [ ] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
-  - [ ] Kalman filter: `initiate → predict → update` cycle
-  - [ ] Hungarian: edge cases (0 tracks, 0 detections, no overlap)
-  - [ ] TrackManager: track birth confirmation (min_hits), track death (max_misses)
-  - [ ] Full integration: 3 detections → track creation → next frame match
-- [ ] Update `CLAUDE.md` thêm section về `src/tracking/` module
-- [ ] Chạy `python -m pytest tests/ -v` để validate
+- [x] ⚠️ File `src/tracking/init.py` vẫn còn tồn tại (tên sai, cần kiểm tra)
+- [x] Viết/cập nhật `tests/test_tracking_smoke.py` với các test cases:
+  - [x] Kalman filter: `initiate → predict → update` cycle
+  - [x] Hungarian: edge cases (0 tracks, 0 detections, no overlap)
+  - [x] TrackManager: track birth confirmation (min_hits), track death (max_misses)
+  - [x] Full integration: 3 detections → track creation → next frame match
+- [x] Update `CLAUDE.md` thêm section về `src/tracking/` module
+- [x] Chạy `python -m pytest tests/ -v` để validate
 
 ---
 
@@ -137,12 +137,12 @@ Frame N:
 
 **Việc cần làm**:
 
-- [ ] Import `TrackManager` vào `pipeline.py` — hiện tại chưa có
-- [ ] Thêm `TrackManager` instance vào `BlindSpotPipeline.__init__()`
-- [ ] Cập nhật `process_frame()`: sau khi có `detections`, gọi `track_manager.update(detections)`
-- [ ] `process_frame()` trả về `(annotated_frame, detections, active_tracks)` hoặc embed track info vào detections
-- [ ] Cập nhật `BlindSpotVisualizer.draw()` để hiển thị track ID và velocity vector trên frame
-- [ ] Cập nhật `app.py` CLI để pass track results
+- [x] Import `TrackManager` vào `pipeline.py` — hiện tại chưa có
+- [x] Thêm `TrackManager` instance vào `BlindSpotPipeline.__init__()`
+- [x] Cập nhật `process_frame()`: sau khi có `detections`, gọi `track_manager.update(detections)`
+- [x] `process_frame()` trả về `(annotated_frame, detections, active_tracks)` hoặc embed track info vào detections
+- [x] Cập nhật `BlindSpotVisualizer.draw()` để hiển thị track ID và velocity vector trên frame
+- [x] Cập nhật `app.py` CLI để pass track results
 
 **Signature mới của `process_frame()`**:
 
@@ -239,7 +239,7 @@ class VelocityBuffer:
 - [x] Implement linear regression (`get_velocity`) và quadratic fit (`get_acceleration`)
 - [x] Integrate `VelocityBuffer` vào `Track` dataclass
 - [x] Cập nhật `TrackManager._update_track()` để tự động gọi `track.velocity_buffer.push(...)`
-- [x] Thay thế Kalman velocity bằng buffer velocity nếu buffer đủ dữ liệu (≥ 5 frames)
+- [ ] Thay thế Kalman velocity bằng buffer velocity nếu buffer đủ dữ liệu (≥ 5 frames)
 
 ---
 

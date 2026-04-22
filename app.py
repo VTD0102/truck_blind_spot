@@ -128,7 +128,7 @@ def main() -> None:
 
 
                 t0 = time.perf_counter()
-                annotated, _ = pipeline.process_frame(frame)
+                annotated, _, _ = pipeline.process_frame(frame)
                 elapsed = time.perf_counter() - t0
 
                 current_fps = 1.0 / max(elapsed, 1e-6)

@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Frame
   → YOLOv9Detector.predict()          (src/detector.py)      → List[Detection]
   → MultiPolygonROI.get_zone()        (src/roi.py)           → detection.in_roi / zone_name / risk_level
-  → TrackManager.update()             (src/tracking/*)       → List[Track]     (optional, not yet wired into pipeline)
+  → TrackManager.update()             (src/tracking/*)       → List[Track]
   → BlindSpotVisualizer.draw()        (src/visualize.py)     → annotated frame
 ```
 
@@ -27,10 +27,10 @@ Frame
 | **app.py** | Main CLI entry point. Video capture loop, keyboard controls (`p`/`r`/`q`), video writer, FPS smoothing. |
 | **src/detector.py** | `YOLOv9Detector` + `Detection` dataclass. Loads model via `DetectMultiBackend`, runs letterbox preprocess → inference → NMS → `scale_boxes`. **Only place in the repo that injects `yolov9/` into `sys.path`.** |
 | **src/roi.py** | `MultiPolygonROI` + `ROIZone`. Multi-zone ROI (per-profile: `front_camera`, `rear_camera`) with per-zone `risk_level` and color. Scales vertices to current frame size. |
-| **src/visualize.py** | `BlindSpotVisualizer` — draws zone polygons, bboxes (green=safe / red=in blind spot), labels, warnings. |
-| **src/pipeline.py** | `BlindSpotPipeline` orchestrator (detector → ROI → visualizer). Also standalone CLI for image/video. Does **not** yet integrate `src/tracking/` — see Plan.md §1.5. |
+| **src/visualize.py** | `BlindSpotVisualizer` — draws zone polygons, detections, track IDs, velocity vectors, and warning overlays. |
+| **src/pipeline.py** | `BlindSpotPipeline` orchestrator (detector → ROI → tracking → visualizer). `process_frame()` returns `(annotated_frame, detections, tracks)`. |
 | **src/roi_evaluation.py** | Standalone tool: per-zone / per-class recall evaluation. Run via `python -m src.roi_evaluation`. |
-| **src/tracking/** | Kalman filter + Hungarian matching + `TrackManager`. **Architectural invariant: must not import from `yolov9/` or `src/detector.py`** (see RULES §2.1). Takes dataclasses (`Detection`, `Track`) only. |
+| **src/tracking/** | Kalman filter + Hungarian matching + `TrackManager`. Tracks now own a per-object Kalman filter and the package exports public symbols via `src/tracking/__init__.py`. **Architectural invariant: must not import from `yolov9/` or `src/detector.py`** (see RULES §2.1). |
 | **yolov9/** | Vendored upstream. **Do not edit** (RULES §5). |
 
 ### `Detection` dataclass (flows through pipeline)
@@ -83,7 +83,7 @@ python3 src/pipeline.py --source path/to/image.jpg --show
 python3 src/pipeline.py --source assets/videos/demo.mp4 --output outputs/out.mp4 --show
 ```
 
-Image mode prints per-detection dicts (bbox, confidence, class, in_roi, zone_name, risk_level, anchor_point).
+Image mode prints per-detection dicts and per-track dicts (track ID, bbox, velocity, hits, misses, status).
 
 ### Tests
 
@@ -110,12 +110,13 @@ python -m src.roi_evaluation \
 
 - **Vendored YOLOv9** — never edit `yolov9/`. All imports (`DetectMultiBackend`, `letterbox`, `non_max_suppression`, `scale_boxes`, `select_device`) go through `src/detector.py`, which is the single place that adds `yolov9/` to `sys.path`.
 - **Tracking dependency direction is enforced** — `src/tracking/` must not import from `yolov9/` or `src/detector.py`; it operates on dataclasses only. Tracking tests must pass without GPU or `.pt` weights.
-- **`src/tracking/init.py` is misnamed** — should be `__init__.py` (flagged in `Plan.md` §1.4). Python 3 namespace-package imports still work via full paths (e.g. `from src.tracking.kalman_filter import ...`), but `from src.tracking import TrackManager` does not.
-- **Tracking is not wired into `BlindSpotPipeline` yet** — `pipeline.py` currently returns `(frame, detections)` only. Integration plan lives in `Plan.md` §1.5 (signature will become `(frame, detections, tracks)`).
+- **Tracking is wired into `BlindSpotPipeline`** — `pipeline.py` now returns `(frame, detections, tracks)` and recomputes ROI metadata on tracked boxes before rendering.
+- **`src/tracking/__init__.py` is the supported import surface** — prefer `from src.tracking import TrackManager, BoundingBoxKalmanFilter` over reaching into internal modules unless you need implementation details.
 - **ROI profiles are required** — `configs/roi.json` has no top-level `polygon`. Code must pick a profile name (`front_camera` or `rear_camera`). `MultiPolygonROI` rescales all zone vertices to the current frame size on every call to `update_frame_size()`.
 - **Class list is 6, not 4** — syncing `configs/classes.yaml` with `configs/blindspot.yaml` is required when retraining.
 - **ADAS bias (RULES §12)** — false negatives are worse than false positives; keep `conf_threshold` low, `max_misses` high, `min_hits` low.
 - **Path handling** — every module resolves paths via `PROJECT_ROOT = Path(__file__).resolve().parents[N]` and `_resolve_path()`. Never hardcode absolute paths (RULES §3).
+- **Track velocity source** — `Track.velocity` is populated from Kalman `(vx, vy)` for Phase 1 matching/tracking; `velocity_buffer` is maintained in parallel for later Phase 2 prediction work.
 - **Video codec** hardcoded to `mp4v`; output containers must be `.mp4`.
 
 ## Default Hyperparameters
@@ -129,14 +130,14 @@ python -m src.roi_evaluation \
 | Tracking | `iou_threshold` | `0.3` (Hungarian) | `TrackManager` |
 | Tracking | `max_misses` | `5` | `TrackManager` |
 | Tracking | `min_hits` | `2` | `TrackManager` |
-| Kalman | `process_noise` / `measurement_noise` | `1e-2` / `1e-1` | `BoundingBoxKalmanFilter` |
+| Kalman | `process_noise` / `measurement_noise` | `1.0` / `10.0` | `BoundingBoxKalmanFilter` |
 
 Acceptable ranges and tuning guidance live in `RULES.md` §7 and `Plan.md`.
 
 ## Ongoing Work
 
 See `Plan.md` for the tracking/motion-prediction roadmap:
-- **Phase 1** — integrate Kalman into `TrackManager`, fix `init.py` → `__init__.py`, wire `TrackManager` into `BlindSpotPipeline`.
+- **Phase 1** — complete; remaining work is mostly documentation/tuning follow-up around tracking defaults.
 - **Phase 2** — new `src/tracking/motion/` (VelocityBuffer, TrajectoryExtrapolator, MotionPredictor) with confidence scoring and predicted-trajectory visualization.
 
 <!-- gitnexus:start -->
