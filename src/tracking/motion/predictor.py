@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional
 
+import numpy as np
+
 from ...common.models import MotionPrediction, PredictedPoint, Track, Velocity
 from .extrapolator import TrajectoryExtrapolator
 from .perspective import PerspectiveTransform
@@ -14,7 +16,7 @@ _ALERT_THRESHOLDS = {
     "medium": 0.4,
 }
 
-MAX_VELOCITY_PX_PER_FRAME = 500.0   # giới hạn hợp lệ — vượt ngưỡng này có thể là nhiễu
+MAX_VELOCITY_PX_PER_FRAME = 500.0   # sanity limit — above this likely noise (≈500 px/frame at 30fps)
 DIRECTION_CHANGE_THRESHOLD = math.pi / 2  # thay đổi 90° đột ngột → đáng ngờ
 
 
@@ -28,13 +30,14 @@ class MotionPredictor:
 
     def __init__(
         self,
-        prediction_horizons_s: List[float] = None,
+        prediction_horizons_s: Optional[List[float]] = None,
         fps: float = 30.0,
         alert_confidence_threshold: float = 0.6,
         perspective_transform: Optional[PerspectiveTransform] = None,
     ) -> None:
         self.prediction_horizons_s = prediction_horizons_s or [0.5, 1.0, 2.0]
         self.fps = fps
+        self._max_velocity_px_per_s = MAX_VELOCITY_PX_PER_FRAME * self.fps  # 500 px/frame * fps
         self.alert_confidence_threshold = alert_confidence_threshold
         self._extrapolator = TrajectoryExtrapolator(
             perspective_transform=perspective_transform
@@ -102,6 +105,8 @@ class MotionPredictor:
 
         Dùng khi cần dự đoán read-only (ví dụ render).
 
+        Lưu ý: confidence ở đây không áp dụng motion penalty (xem `update()` để có confidence đầy đủ).
+
         Args:
             track: Track cần dự đoán.
 
@@ -154,11 +159,7 @@ class MotionPredictor:
         zero: Velocity = (0.0, 0.0)
         if track.velocity_buffer is not None and len(track.velocity_buffer) >= 2:
             velocity: Velocity = track.velocity_buffer.get_velocity() or track.velocity or zero
-            acceleration: Velocity = (
-                track.velocity_buffer.get_acceleration()
-                if hasattr(track.velocity_buffer, "get_acceleration")
-                else None
-            ) or zero
+            acceleration: Velocity = getattr(track.velocity_buffer, "get_acceleration", lambda: None)() or zero
         else:
             velocity = track.velocity or zero
             acceleration = zero
@@ -172,8 +173,6 @@ class MotionPredictor:
         """
         if track.velocity_buffer is None or len(track.velocity_buffer) < 3:
             return 0.0
-        import numpy as np
-
         positions = list(track.velocity_buffer.positions)
         timestamps = list(track.velocity_buffer.timestamps)
         if len(positions) < 3:
@@ -195,7 +194,7 @@ class MotionPredictor:
         """Tính phạt confidence nếu chuyển động bất thường.
 
         Kiểm tra:
-        1. Tốc độ quá lớn (> MAX_VELOCITY_PX_PER_FRAME) → nhiễu.
+        1. Tốc độ quá lớn (> _max_velocity_px_per_s = MAX_VELOCITY_PX_PER_FRAME * fps) → nhiễu.
         2. Thay đổi hướng đột ngột (> 90°) so với frame trước.
         3. Kích thước bbox thay đổi đột ngột (> 3x) → tái định danh đáng ngờ.
 
@@ -207,7 +206,7 @@ class MotionPredictor:
         speed = math.sqrt(vx ** 2 + vy ** 2)
 
         # Kiểm tra tốc độ bất thường
-        if speed > MAX_VELOCITY_PX_PER_FRAME:
+        if speed > self._max_velocity_px_per_s:
             penalty += 0.3
 
         # Kiểm tra tính nhất quán hướng di chuyển
