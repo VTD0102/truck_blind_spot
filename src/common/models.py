@@ -91,13 +91,24 @@ class KalmanState:
 
 
 @dataclass
+class PredictedPoint:
+    """Vị trí dự đoán tại một thời điểm trong tương lai."""
+
+    position: Point
+    timestamp_s: float      # seconds from now (0.5, 1.0, 2.0)
+    confidence: float       # [0.0, 1.0]
+
+
+@dataclass
 class MotionPrediction:
-    """Predicted motion state for one tracked object."""
+    """Kết quả dự đoán chuyển động cho một track."""
 
     track_id: int
-    predicted_position: Point
-    confidence: float
-    timestamp: float
+    trajectory: List[PredictedPoint]
+    overall_confidence: float           # mean confidence across trajectory
+    alert_level: str                    # "none", "low", "medium", "high"
+    velocity_px_per_s: Velocity
+    acceleration_px_per_s2: Velocity
 
 
 @dataclass

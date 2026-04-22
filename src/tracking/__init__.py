@@ -7,6 +7,7 @@ from .kalman_filter import (
     DEFAULT_PROCESS_NOISE,
 )
 from .matching import AssignmentMetric, DistanceMetric, Match, compute_iou, match_tracks_detections
+from .motion import MotionPredictor
 from .track_manager import TrackDetection, TrackManager
 from .types import FloatBBox, Point, Track, TrackStatus, Velocity
 
@@ -19,6 +20,7 @@ __all__ = [
     "DistanceMetric",
     "FloatBBox",
     "Match",
+    "MotionPredictor",
     "Point",
     "Track",
     "TrackDetection",
