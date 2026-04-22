@@ -41,6 +41,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iou-thres", type=float, default=0.45)
     parser.add_argument("--output", type=str, default=None)
     parser.add_argument("--loop", action="store_true")
+    parser.add_argument(
+        "--prediction-horizon",
+        type=float,
+        default=1.0,
+        help="Mốc thời gian dự đoán chuyển động tính bằng giây (ví dụ: 0.5, 1.0, 2.0).",
+    )
+    parser.add_argument(
+        "--alert-threshold",
+        type=float,
+        default=0.6,
+        help="Ngưỡng confidence tối thiểu để kích hoạt cảnh báo chuyển động.",
+    )
     return parser.parse_args()
 
 
@@ -90,6 +102,8 @@ def main() -> None:
         device=args.device,
         conf_threshold=args.conf_thres,
         iou_threshold=args.iou_thres,
+        prediction_horizons_s=[args.prediction_horizon],
+        alert_confidence_threshold=args.alert_threshold,
     )
 
     cap = open_capture(args.source)
@@ -128,8 +142,21 @@ def main() -> None:
 
 
                 t0 = time.perf_counter()
-                annotated, _, _ = pipeline.process_frame(frame)
+                annotated, _, tracks = pipeline.process_frame(frame)
                 elapsed = time.perf_counter() - t0
+
+                # Ghi log cảnh báo chuyển động mức medium/high
+                for track_id, pred in (getattr(pipeline, "last_predictions", None) or {}).items():
+                    if pred.alert_level in ("medium", "high"):
+                        zone = next(
+                            (t.zone_name for t in tracks if t.track_id == track_id),
+                            "?",
+                        )
+                        print(
+                            f"[ALERT] Track {track_id}: {pred.alert_level.upper()} risk"
+                            f" | zone={zone}"
+                            f" | conf={pred.overall_confidence:.2f}"
+                        )
 
                 current_fps = 1.0 / max(elapsed, 1e-6)
                 smoothed_fps = (

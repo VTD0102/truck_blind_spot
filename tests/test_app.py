@@ -67,6 +67,8 @@ def test_app_main_accepts_pipeline_track_output(monkeypatch) -> None:
             iou_thres=0.45,
             output=None,
             loop=False,
+            prediction_horizon=1.0,
+            alert_threshold=0.6,
         ),
     )
     monkeypatch.setattr(app, "BlindSpotPipeline", lambda **kwargs: fake_pipeline)

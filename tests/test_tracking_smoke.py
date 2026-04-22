@@ -224,6 +224,7 @@ def test_pipeline_process_frame_returns_tracks(monkeypatch: pytest.MonkeyPatch) 
             roi_zones: list[FakeZone] | None = None,
             copy: bool = True,
             tracks: list[Track] | None = None,
+            predictions: object = None,
         ) -> np.ndarray:
             self.last_tracks = tracks
             return frame.copy() if copy else frame

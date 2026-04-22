@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
 try:
-    from .common.models import Track
+    from .common.models import MotionPrediction, Track
     from .detector import Detection, YOLOv9Detector
     from .roi import MultiPolygonROI
+    from .tracking.motion import MotionPredictor
     from .tracking.track_manager import TrackManager
     from .visualize import BlindSpotVisualizer
 except ImportError:
-    from common.models import Track  # type: ignore
+    from common.models import MotionPrediction, Track  # type: ignore
     from detector import Detection, YOLOv9Detector  # type: ignore
     from roi import MultiPolygonROI  # type: ignore
+    from tracking.motion import MotionPredictor  # type: ignore
     from tracking.track_manager import TrackManager  # type: ignore
     from visualize import BlindSpotVisualizer  # type: ignore
 
@@ -42,6 +45,8 @@ class BlindSpotPipeline:
         track_max_misses: int = 5,
         track_min_hits: int = 2,
         track_max_trace_length: int = 30,
+        prediction_horizons_s: Optional[List[float]] = None,
+        alert_confidence_threshold: float = 0.6,
     ) -> None:
         self.detector = YOLOv9Detector(
             weights_path=weights_path,
@@ -62,6 +67,14 @@ class BlindSpotPipeline:
             max_trace_length=track_max_trace_length,
         )
         self.visualizer = BlindSpotVisualizer()
+        # Khởi tạo bộ dự đoán chuyển động với các mốc thời gian mặc định
+        self.motion_predictor = MotionPredictor(
+            prediction_horizons_s=prediction_horizons_s or [0.5, 1.0, 2.0],
+            fps=30.0,
+            alert_confidence_threshold=alert_confidence_threshold,
+        )
+        # Cache dự đoán mới nhất để app.py có thể truy cập cảnh báo
+        self.last_predictions: Optional[Dict[int, MotionPrediction]] = None
 
     def process_frame(
         self,
@@ -88,12 +101,21 @@ class BlindSpotPipeline:
             track.zone_name = zone.name if zone is not None else None
             track.risk_level = zone.risk_level if zone is not None else None
 
+        # Cập nhật dự đoán chuyển động cho mỗi track đang theo dõi
+        current_time = time.time()
+        predictions: Dict[int, MotionPrediction] = {
+            t.track_id: self.motion_predictor.update(t, current_time)
+            for t in tracks
+        }
+        self.last_predictions = predictions
+
         annotated_frame = self.visualizer.draw(
             frame=frame,
             detections=detections,
             roi_zones=self.roi.zones,
             copy=True,
             tracks=tracks,
+            predictions=predictions,
         )
         return annotated_frame, detections, tracks
 

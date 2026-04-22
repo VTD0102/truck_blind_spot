@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
 
 try:
-    from .common.models import Detection, Track
+    from .common.models import Detection, MotionPrediction, Track
     from .roi import ROIZone
 except ImportError:
-    from common.models import Detection, Track  # type: ignore
+    from common.models import Detection, MotionPrediction, Track  # type: ignore
     from roi import ROIZone  # type: ignore
 
 
@@ -37,8 +37,9 @@ class BlindSpotVisualizer:
         roi_zones: Optional[Sequence[ROIZone]] = None,
         copy: bool = True,
         tracks: Optional[Sequence[Track]] = None,
+        predictions: Optional[Dict[int, MotionPrediction]] = None,
     ) -> np.ndarray:
-        """Draw detections, ROI overlays, and tracks on a frame."""
+        """Draw detections, ROI overlays, tracks, and motion predictions on a frame."""
 
         output = frame.copy() if copy else frame
 
@@ -70,6 +71,10 @@ class BlindSpotVisualizer:
 
         if tracks:
             self._draw_tracks(output, tracks, roi_zones)
+
+        # Vẽ quỹ đạo dự đoán nếu có dữ liệu
+        if tracks and predictions:
+            self._draw_predictions(output, tracks, predictions)
 
         if warning_count > 0:
             self._draw_banner(output, f"CANH BAO DIEM MU: {warning_count}")
@@ -131,6 +136,47 @@ class BlindSpotVisualizer:
                 2,
                 tipLength=0.25,
             )
+
+    def _draw_predictions(
+        self,
+        frame: np.ndarray,
+        tracks: Sequence[Track],
+        predictions: Dict[int, MotionPrediction],
+    ) -> None:
+        """Vẽ quỹ đạo dự đoán và nhãn mức cảnh báo lên frame."""
+        for track in tracks:
+            pred = predictions.get(track.track_id)
+            if pred is None:
+                continue
+
+            # Chọn màu theo mức cảnh báo
+            alert_color = self._alert_color(pred.alert_level)
+
+            # Vẽ các điểm dự đoán trên quỹ đạo
+            for pt in pred.trajectory:
+                x, y = pt.position
+                radius = max(3, int(pt.confidence * 8))
+                cv2.circle(frame, (x, y), radius, alert_color, -1)
+
+            # Vẽ nhãn confidence và mức cảnh báo gần bbox
+            x1, _, _, y2 = self._to_int_bbox(track.bbox)
+            conf_label = f"conf:{pred.overall_confidence:.2f} [{pred.alert_level}]"
+            self._draw_label(
+                frame,
+                conf_label,
+                (x1, min(frame.shape[0] - 35, y2 + 40)),
+                alert_color,
+            )
+
+    def _alert_color(self, alert_level: str) -> Tuple[int, int, int]:
+        """Trả về màu BGR tương ứng với mức cảnh báo."""
+        if alert_level == "high":
+            return (0, 0, 255)    # đỏ
+        if alert_level == "medium":
+            return (0, 165, 255)  # cam
+        if alert_level == "low":
+            return (0, 255, 255)  # vàng
+        return (0, 200, 0)        # xanh lá (an toàn)
 
     def _resolve_detection_color(
         self,
