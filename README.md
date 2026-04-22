@@ -1,254 +1,176 @@
-# 🚗 Truck Blind Spot Detection
+# Truck Blind Spot Detection
 
-Hệ thống phát hiện vật thể trong vùng điểm mù xe tải sử dụng **YOLOv9** - một giải pháp AI cho an toàn giao thông.
+Hệ thống ADAS phát hiện và theo dõi vật thể trong vùng điểm mù xe tải theo thời gian thực, sử dụng **YOLOv9** + **Kalman Tracking** + **Motion Prediction**.
 
-## 📋 Tổng Quan
+## Tổng Quan
 
-Hệ thống này tự động phát hiện và cảnh báo khi có vật thể (người, xe đạp, ô tô, mô tô) xuất hiện trong vùng điểm mù của xe tải:
-
-- **Phát hiện đối tượng**: Sử dụng model YOLOv9-Small được fine-tune trên bộ dữ liệu xe cộ
-- **Xác định vùng nguy hiểm**: Kiểm tra xem đối tượng có nằm trong vùng ROI (Region of Interest) - điểm mù không?
-- **Cảnh báo realtime**: Hiển thị bbox đỏ và nhãn "BLIND SPOT" khi phát hiện vật thể nguy hiểm
-- **4 class đối tượng**: Person, Bicycle, Car, Motorcycle
-
-### Ứng dụng
-
-- 🚛 Hỗ trợ an toàn lái xe xe tải (ADAS - Advanced Driver Assistance System)
-- 📹 Tích hợp vào hệ thống camera giám sát
-- 🎓 Đồ án AI, Computer Vision cho sinh viên
-
-## 🏗️ Cấu Trúc Project
+Pipeline xử lý mỗi frame theo 4 bước:
 
 ```
-truck_blind_spot/
-├── README.md                    # Tài liệu này
-├── app.py                       # Script chạy demo video chính
-├── requirements.txt             # Danh sách package Python
-│
-├── configs/                     # Cấu hình hệ thống
-│   ├── classes.yaml             # Định nghĩa 4 class đối tượng
-│   └── roi.json                 # Polygon ROI (điểm mù) cho frame 1280x720
-│
-├── src/                         # Source code chính
-│   ├── detector.py              # YOLOv9Detector - load model, inference, NMS
-│   ├── roi.py                   # PolygonROI - kiểm tra điểm trong polygon
-│   ├── visualize.py             # BlindSpotVisualizer - vẽ bbox, ROI, warning
-│   └── pipeline.py              # BlindSpotPipeline - điều phối toàn bộ pipeline
-│
-├── weights/                     # Model weights
-│   └── best_small.pt            # YOLOv9-Small trained (mAP@0.5=0.70)
-│
-├── assets/videos/               # Video demo
-│   ├── demo.mp4
-│   ├── demo2.mp4
-│   └── ...
-│
-├── report/                      # Báo cáo chi tiết
-│   ├── dataset_report.md        # Chuẩn bị dataset
-│   ├── training_report.md       # Kết quả huấn luyện model
-│   └── inference_report.md      # Chi tiết inference & hiệu năng
-│
-└── yolov9/                      # YOLOv9 source code (upstream)
-    ├── models/
-    ├── utils/
-    ├── train.py
-    ├── detect.py
-    └── ...
+Frame → YOLOv9 Detection → Multi-zone ROI → Kalman Tracking → Motion Prediction → Visualization
 ```
 
-## 🔧 Yêu Cầu
+**Tính năng chính:**
+- Phát hiện 6 class đối tượng: `person, bike, motor, car, truck, bus`
+- Multi-zone ROI với mức độ nguy hiểm riêng cho từng vùng (`risk_level`)
+- Tracking liên tục qua các frame bằng Kalman Filter + Hungarian Algorithm
+- Dự đoán quỹ đạo chuyển động tại 0.5s / 1.0s / 2.0s phía trước
+- Cảnh báo có độ tin cậy (confidence-based alert) với 4 mức: none / low / medium / high
+- Hỗ trợ 2 profile camera: `front_camera`, `rear_camera`
 
-- **Python**: 3.8 trở lên
-- **PyTorch**: >= 2.0 (với CUDA 11.8+ nếu chạy GPU)
-- **OpenCV**: >= 4.8.0
-- **CUDA** (optional): Để tăng tốc độ inference trên GPU
-
-### Thông số chi tiết
-
-Xem file `requirements.txt`:
-- PyTorch, torchvision
-- OpenCV, NumPy, PIL
-- Matplotlib, Pandas, Seaborn (cho phân tích)
-- PyYAML (cấu hình)
-
-## 📦 Cài Đặt
-
-### 1. Clone repository
+## Cài Đặt
 
 ```bash
 git clone https://github.com/VTD0102/truck_blind_spot.git
 cd truck_blind_spot
-```
-
-### 2. Tạo virtual environment (optional nhưng recommended)
-
-```bash
-python3 -m venv venv
-source venv/bin/activate    # Linux/Mac
-# hoặc
-venv\Scripts\activate       # Windows
-```
-
-### 3. Cài đặt dependencies
-
-```bash
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 🚀 Chạy Demo
+**Yêu cầu:** Python 3.10+, PyTorch ≥ 2.0, OpenCV ≥ 4.8
 
-### Chạy demo video đơn giản
+## Chạy Demo
 
 ```bash
+# Demo mặc định: best_6k.pt + demo4.mp4 + front_camera ROI
 python3 app.py
+
+# Tùy chỉnh source / output / profile
+python3 app.py --source assets/videos/demo.mp4 --output outputs/result.mp4
+python3 app.py --source 0                          # webcam
+python3 app.py --roi-profile rear_camera
+python3 app.py --loop                              # lặp video file
+
+# Điều chỉnh ngưỡng detection
+python3 app.py --conf-thres 0.3 --iou-thres 0.5
+
+# Điều chỉnh motion prediction
+python3 app.py --prediction-horizon 1.0 --alert-threshold 0.5
 ```
 
-Chương trình sẽ:
-- Load model YOLOv9-Small từ `weights/best_small.pt`
-- Đọc video từ `assets/videos/demo.mp4`
-- Xử lý từng frame và hiển thị realtime
-- Hiển thị FPS ở góc trên trái
+**Phím điều khiển:** `p` tạm dừng · `r` restart · `q` thoát
 
-### Điều khiển
-
-| Phím | Chức năng |
-|------|----------|
-| `p`  | Tạm dừng / Tiếp tục (Pause/Resume) |
-| `q`  | Thoát chương trình |
-
-### Sử dụng CLI (tùy chọn)
-
-Pipeline hỗ trợ CLI để xử lý ảnh, video, hoặc camera:
-
-```bash
-python3 src/pipeline.py --source assets/videos/demo.mp4 --output output.mp4
-python3 src/pipeline.py --source 0  # Sử dụng webcam
-```
-
-## 🧠 Pipeline Hoạt Động
-
-Các bước xử lý cho mỗi frame:
+## Cấu Trúc Project
 
 ```
-┌─────────────────┐
-│  Input Frame    │
-└────────┬────────┘
-         │
-         ▼
-┌──────────────────────────┐
-│   YOLOv9Detector         │
-│ - Preprocess frame       │
-│ - Run inference          │
-│ - NMS filtering          │
-└────────┬─────────────────┘
-         │
-         ▼
-┌──────────────────────────┐
-│   Detection Results      │
-│ [bbox, conf, class_id]   │
-└────────┬─────────────────┘
-         │
-         ▼
-┌──────────────────────────┐
-│     PolygonROI Check     │
-│ - Get bbox check point   │
-│ - Test point in polygon  │
-│ - Mark: Safe/Blind Spot  │
-└────────┬─────────────────┘
-         │
-         ▼
-┌──────────────────────────┐
-│  BlindSpotVisualizer     │
-│ - Draw ROI polygon       │
-│ - Draw bbox (green/red)  │
-│ - Add labels & warning   │
-└────────┬─────────────────┘
-         │
-         ▼
-┌──────────────────────────┐
-│  Output Frame + FPS      │
-└──────────────────────────┘
+truck_blind_spot/
+├── app.py                       # CLI entry point chính
+├── requirements.txt
+│
+├── src/
+│   ├── detector.py              # YOLOv9Detector — inference, NMS, scale_boxes
+│   ├── roi.py                   # MultiPolygonROI — multi-zone, risk_level
+│   ├── visualize.py             # BlindSpotVisualizer — vẽ zone, track, trajectory
+│   ├── pipeline.py              # BlindSpotPipeline — orchestrator
+│   ├── roi_evaluation.py        # Công cụ đánh giá recall theo zone
+│   ├── common/
+│   │   ├── models.py            # Detection, Track, MotionPrediction, AlertEvent
+│   │   └── enums.py             # TrackStatus, AlertLevel, AlertType
+│   └── tracking/
+│       ├── kalman_filter.py     # BoundingBoxKalmanFilter (state 8D)
+│       ├── matching.py          # match_tracks_detections (Hungarian + IoU)
+│       ├── track_manager.py     # TrackManager (birth / update / death)
+│       └── motion/
+│           ├── velocity_buffer.py   # VelocityBuffer — rolling regression
+│           ├── extrapolator.py      # TrajectoryExtrapolator — quadratic extrapolation
+│           ├── perspective.py       # PerspectiveTransform — IPM / BEV
+│           └── predictor.py         # MotionPredictor — wrapper, alert logic
+│
+├── configs/
+│   ├── classes.yaml             # 6 classes: person, bike, motor, car, truck, bus
+│   ├── roi.json                 # Multi-zone ROI (front_camera / rear_camera)
+│   └── blindspot.yaml           # Dataset config cho training/eval
+│
+├── weights/
+│   ├── best_6k.pt               # Checkpoint chính (mặc định)
+│   └── best_pilot_4k5.pt
+│
+├── assets/videos/               # Video test
+├── outputs/                     # Kết quả xuất ra
+├── tests/                       # pytest — 59 tests, không cần GPU
+├── CLAUDE.md                    # Hướng dẫn cho Claude Code
+├── AGENTS.md                    # Hướng dẫn cho AI agents
+├── RULES.md                     # Quy tắc bắt buộc của project
+└── Plan.md                      # Roadmap chi tiết theo phase
 ```
 
-### Chi tiết các thành phần
+## Pipeline Chi Tiết
 
-| Module | Chức năng |
-|--------|----------|
-| **src/detector.py** | Tải model YOLOv9, tiền/hậu xử lý, inference, NMS |
-| **src/roi.py** | Đọc config ROI từ JSON, kiểm tra điểm có trong polygon |
-| **src/visualize.py** | Vẽ ROI overlay, bbox, nhãn, cảnh báo lên frame |
-| **src/pipeline.py** | Kết nối detector + ROI + visualizer thành pipeline hoàn chỉnh |
+### 1. Detection (`src/detector.py`)
+`YOLOv9Detector` load model qua `DetectMultiBackend`, chạy letterbox preprocess → inference → NMS → `scale_boxes`. Trả về `List[Detection]` với `bbox (x1,y1,x2,y2)`, `confidence`, `class_id`, `class_name`.
 
-## 📊 Cấu Hình
+### 2. ROI (`src/roi.py`)
+`MultiPolygonROI` đọc `configs/roi.json`, scale polygon theo kích thước frame thực tế. Mỗi zone có `name`, `risk_level`, `color`. Kiểm tra `anchor_point` (bottom-center của bbox) để xác định `in_roi` và `zone_name`.
 
-### Model Config
+### 3. Tracking (`src/tracking/`)
+- **Kalman Filter**: state vector 8D `[cx, cy, w, h, vx, vy, vw, vh]` — track cả vị trí lẫn kích thước bbox
+- **Hungarian Algorithm**: gán detection vào track dùng IoU cost matrix
+- **TrackManager**: quản lý vòng đời track (TENTATIVE → CONFIRMED → LOST), tự động xóa track chết
+- **Velocity**: dùng Kalman velocity cho frame đầu, chuyển sang buffer smoothed velocity khi có ≥ 5 frames
 
-- **Model**: YOLOv9-Small
-- **Input Size**: 640x640
-- **Confidence Threshold**: 0.25 (mặc định)
-- **NMS Threshold**: 0.45 (mặc định)
-- **Weight**: `weights/best_small.pt` (20.3 MB)
+### 4. Motion Prediction (`src/tracking/motion/`)
+- **VelocityBuffer**: rolling buffer 10 frames, tính velocity/acceleration bằng least-squares regression
+- **TrajectoryExtrapolator**: `x(t) = x0 + vx·t + ½·ax·t²`, confidence = tracking_quality × consistency × smoothness × exp(-λt)
+- **MotionPredictor**: dự đoán vị trí tại `[0.5s, 1.0s, 2.0s]`, motion validation (max speed, direction change, bbox size), alert level
 
-### Classes Config (`configs/classes.yaml`)
+### 5. Visualization (`src/visualize.py`)
+Vẽ: zone polygon (alpha overlay) · detection bbox + label · track ID + velocity arrow · trajectory dots (màu theo alert level) · confidence/alert label · cảnh báo banner.
 
-```yaml
-names:
-  0: person
-  1: bicycle
-  2: car
-  3: motorcycle
-```
+**Color coding:**
+| Alert level | Màu |
+|-------------|-----|
+| high | Đỏ |
+| medium | Cam |
+| low | Vàng |
+| none / ngoài ROI | Xanh lá |
+
+## Cấu Hình
+
+### Hyperparameters mặc định
+
+| Tham số | Mặc định | CLI arg |
+|---------|---------|---------|
+| Confidence threshold | 0.25 | `--conf-thres` |
+| NMS IoU threshold | 0.45 | `--iou-thres` |
+| Track IoU threshold | 0.3 | — |
+| Max misses trước khi xóa track | 5 | — |
+| Min hits để xác nhận track | 2 | — |
+| Prediction horizon | 1.0s | `--prediction-horizon` |
+| Alert confidence threshold | 0.6 | `--alert-threshold` |
 
 ### ROI Config (`configs/roi.json`)
 
-```json
-{
-  "image_size": { "w": 1280, "h": 720 },
-  "polygon": [[900, 150], [1270, 250], [1270, 710], [800, 710], [760, 520]],
-  "check_point": "bbox_bottom_center"
-}
+Schema: `profiles.{front_camera,rear_camera}.zones[].{name, risk_level, color, polygon}`
+
+Polygon tự động scale theo kích thước frame thực tế — không cần chỉnh thủ công khi đổi resolution.
+
+## Tests
+
+```bash
+python -m pytest tests/ -v          # 59 tests, không cần GPU hoặc weights
 ```
 
-- **polygon**: 5 đỉnh định nghĩa vùng điểm mù (bên phải)
-- **check_point**: Điểm dùng để kiểm tra (dưới giữa bbox thích hợp cho xe cộ)
+## Đánh Giá ROI Recall
 
-## 📈 Hiệu Năng Model
+```bash
+python -m src.roi_evaluation \
+  --weights weights/best_6k.pt \
+  --data configs/blindspot.yaml \
+  --roi configs/roi.json \
+  --roi-profile front_camera \
+  --split val --conf-thres 0.25 \
+  --output-dir outputs/roi_eval
+```
 
-Model được huấn luyện trên **Google Colab Pro (NVIDIA H100)** trong 100 epochs:
+## Roadmap
 
-| Metric | YOLOv9-Small | YOLOv9-Tiny |
-|--------|--------------|------------|
-| **mAP@0.5** | 0.70 | 0.69 |
-| **Model Size** | 20.3 MB | ~15 MB |
-| **Inference Speed** | ~30 FPS | ~50 FPS |
-| **Status** | ✅ Chính | (Thay thế) |
+| Phase | Nội dung | Trạng thái |
+|-------|----------|-----------|
+| 0 | Shared types, enums, DTOs | ✅ Hoàn thành |
+| 1 | Kalman Filter + Hungarian + TrackManager | ✅ Hoàn thành |
+| 2 | MotionPredictor + trajectory visualization | ✅ Hoàn thành |
+| 3 | API endpoints, message queue, database | Chưa bắt đầu |
+| 4 | Mock data & validation | Chưa bắt đầu |
+| 5 | Ego-motion compensation (advanced) | Chưa bắt đầu |
 
-## 🎯 Kết Quả Hiển Thị
-
-Trên video output:
-
-- **Bbox xanh**: Đối tượng phát hiện nhưng ở ngoài vùng điểm mù (an toàn)
-- **Bbox đỏ**: Đối tượng nằm trong vùng điểm mù (⚠️ BLIND SPOT)
-- **ROI polygon**: Đường viền xác định vùng điểm mù
-- **FPS counter**: Hiệu suất xử lý realtime
-
-## 📝 Báo Cáo Chi Tiết
-
-Các báo cáo chi tiết nằm trong thư mục `report/`:
-
-- **dataset_report.md**: Chuẩn bị dataset, xử lý dữ liệu
-- **training_report.md**: Quá trình huấn luyện, kết quả, so sánh model
-- **inference_report.md**: Cấu trúc pipeline, hướng tối ưu hóa
-
-## 🔮 Hướng Phát Triển
-
-Các cải tiến tiềm năng:
-
-- ✅ Hỗ trợ GPU acceleration (CUDA/TensorRT)
-- ✅ Sử dụng half precision (FP16) để tăng tốc
-- ✅ Video writer để lưu kết quả
-- ✅ Logging và benchmark FPS
-- ✅ Web interface / REST API
-- ✅ Đa ROI (các vùng điểm mù khác nhau)
-
-
+Chi tiết từng phase xem `Plan.md`.
