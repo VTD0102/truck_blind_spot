@@ -11,15 +11,7 @@ matching (sorted by confidence desc), consistent with standard object
 detection evaluation.
 
 Usage:
-    python -m src.roi_evaluation \\
-        --weights weights/best_6k.pt \\
-        --data configs/blindspot.yaml \\
-        --roi configs/roi.json \\
-        --roi-profile front_camera \\
-        --split val \\
-        --conf-thres 0.25 \\
-        --iou-match 0.5 \\
-        --output-dir outputs/roi_eval
+    python -m src.roi_evaluation --weights weights/best_roiv2.pt --data configs/blindspot.yaml --roi configs/roi.json --roi-profile front_camera --split val --conf-thres 0.25 --iou-match 0.5 --output-dir outputs/roi_v2
 """
 
 from __future__ import annotations
