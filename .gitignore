@@ -189,6 +189,9 @@ runs/
 yolov9/data/datasets/
 yolov9/data/datasets_2/
 
+# Output directories
+outputs/detect_test/
+
 # Compressed files
 *.zip
 .gitnexus
