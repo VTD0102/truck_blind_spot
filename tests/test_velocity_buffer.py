@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 
 import pytest
 
@@ -76,6 +77,20 @@ def test_acceleration_constant_uniform() -> None:
     ax, ay = acc
     assert math.isclose(ax, 4.0, abs_tol=0.5)
     assert math.isclose(ay, 2.0, abs_tol=0.5)
+
+
+def test_acceleration_large_timestamps_do_not_emit_rank_warning() -> None:
+    buf = VelocityBuffer(max_size=10)
+    base_time = 1_775_000_000.0
+    for i in range(5):
+        t = base_time + i * 0.04
+        buf.push((100 + i * 3, 200 + i * 2), t)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        acceleration = buf.get_acceleration()
+
+    assert acceleration is not None
 
 
 def test_smoothed_velocity_uses_recent_window() -> None:

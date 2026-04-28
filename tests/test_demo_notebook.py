@@ -33,10 +33,11 @@ def test_demo_notebook_runs_app_py_instead_of_inline_pipeline() -> None:
 
     assert '"app.py"' in text
     assert '"--device"' in text
-    assert '"--no-display"' in text
-    assert '["app.py", "--help"]' in text
-    assert "chưa hỗ trợ --no-display" in text
+    assert '"--no-display"' not in text
     assert '"--output"' not in text
+    assert '["app.py", "--help"]' not in text
+    assert "stdout=subprocess.PIPE" not in text
+    assert "stderr=subprocess.STDOUT" not in text
     assert "subprocess.run(" in text
     assert "BlindSpotPipeline" not in text
     assert "pipeline.process_frame" not in text
@@ -52,7 +53,7 @@ def test_demo_notebook_code_cells_are_plain_python() -> None:
         compile(source, f"demo_notebook.ipynb cell {index}", "exec")
 
 
-def test_demo_notebook_uses_colab_gpu_app_runner() -> None:
+def test_demo_notebook_uses_gpu_local_style_app_runner() -> None:
     text = _notebook_text()
 
     assert 'device = "0"' in text
@@ -62,5 +63,3 @@ def test_demo_notebook_uses_colab_gpu_app_runner() -> None:
     assert "xvfb-run" not in text
     assert "IPython.display" not in text
     assert "colab_app_output.mp4" not in text
-    assert "stdout=subprocess.PIPE" in text
-    assert "stderr=subprocess.STDOUT" in text

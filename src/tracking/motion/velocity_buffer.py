@@ -125,10 +125,15 @@ class VelocityBuffer:
         ts, xs, ys = self._array_slice(length)
         if ts[-1] == ts[0]:
             return None
+        if np.unique(ts).size < 3:
+            return None
+
+        # Dịch mốc thời gian về 0 để tránh RankWarning với timestamp epoch lớn.
+        fit_ts = ts - ts[0]
 
         # polyfit bậc 2: y = a*t^2 + b*t + c  →  acc = 2a
-        ax = 2.0 * float(np.polyfit(ts, xs, 2)[0])
-        ay = 2.0 * float(np.polyfit(ts, ys, 2)[0])
+        ax = 2.0 * float(np.polyfit(fit_ts, xs, 2)[0])
+        ay = 2.0 * float(np.polyfit(fit_ts, ys, 2)[0])
         return (ax, ay)
 
     # ─── Internal helpers ────────────────────────────────────────────────
@@ -157,10 +162,14 @@ class VelocityBuffer:
             return None
         if ts[-1] == ts[0]:
             return None
+        if np.unique(ts).size < 2:
+            return None
+
+        fit_ts = ts - ts[0]
 
         # polyfit bậc 1: x = vx*t + b  →  vx = slope
-        vx = float(np.polyfit(ts, xs, 1)[0])
-        vy = float(np.polyfit(ts, ys, 1)[0])
+        vx = float(np.polyfit(fit_ts, xs, 1)[0])
+        vy = float(np.polyfit(fit_ts, ys, 1)[0])
         return (vx, vy)
 
 
