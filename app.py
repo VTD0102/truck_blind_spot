@@ -46,6 +46,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=str, default=None)
     parser.add_argument("--loop", action="store_true")
     parser.add_argument(
+        "--no-display",
+        action="store_true",
+        help="Chạy xử lý video không mở cửa sổ OpenCV, phù hợp môi trường headless/Colab.",
+    )
+    parser.add_argument(
         "--prediction-horizon",
         type=float,
         default=1.0,
@@ -120,13 +125,15 @@ def main() -> None:
     if args.output:
         writer = create_writer(cap, args.output)
 
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WINDOW_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
-    cv2.setWindowProperty(
-        WINDOW_NAME,
-        cv2.WND_PROP_FULLSCREEN,
-        cv2.WINDOW_FULLSCREEN,
-    )
+    display_enabled = not args.no_display
+    if display_enabled:
+        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(WINDOW_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        cv2.setWindowProperty(
+            WINDOW_NAME,
+            cv2.WND_PROP_FULLSCREEN,
+            cv2.WINDOW_FULLSCREEN,
+        )
 
     paused = False
     last_frame = None
@@ -137,7 +144,10 @@ def main() -> None:
     print(f"[INFO] Weights    : {args.weights}")
     print(f"[INFO] ROI profile: {args.roi_profile}")
     print(f"[INFO] Device     : {args.device or 'auto'}")
-    print("[INFO] Phím tắt: [p] Pause  [r] Restart  [q] Thoát")
+    if display_enabled:
+        print("[INFO] Phím tắt: [p] Pause  [r] Restart  [q] Thoát")
+    else:
+        print("[INFO] Chế độ no-display: xử lý hết nguồn video rồi thoát.")
 
     try:
         while True:
@@ -184,31 +194,33 @@ def main() -> None:
             if last_frame is None:
                 continue
 
-            display = last_frame.copy() if paused else last_frame
-            if paused:
-                draw_overlay(display, smoothed_fps, paused=True)
+            if display_enabled:
+                display = last_frame.copy() if paused else last_frame
+                if paused:
+                    draw_overlay(display, smoothed_fps, paused=True)
 
-            cv2.imshow(WINDOW_NAME, display)
+                cv2.imshow(WINDOW_NAME, display)
 
-            wait_ms = 30 if paused else 1
-            key = cv2.waitKey(wait_ms) & 0xFF
+                wait_ms = 30 if paused else 1
+                key = cv2.waitKey(wait_ms) & 0xFF
 
-            if key == ord("q"):
-                break
-            elif key == ord("p"):
-                paused = not paused
-            elif key == ord("r") and is_file:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                paused = False
-                smoothed_fps = 0.0
-                print("[INFO] Restart video.")
+                if key == ord("q"):
+                    break
+                elif key == ord("p"):
+                    paused = not paused
+                elif key == ord("r") and is_file:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    paused = False
+                    smoothed_fps = 0.0
+                    print("[INFO] Restart video.")
 
     finally:
         cap.release()
         if writer is not None:
             writer.release()
             print(f"[INFO] Video đã lưu tại: {args.output}")
-        cv2.destroyAllWindows()
+        if display_enabled:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
