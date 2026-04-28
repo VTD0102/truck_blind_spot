@@ -28,11 +28,14 @@ def test_demo_notebook_uses_current_project_defaults() -> None:
     assert "branch = \"taitu\"" not in text
 
 
-def test_demo_notebook_matches_process_frame_contract() -> None:
+def test_demo_notebook_runs_app_py_instead_of_inline_pipeline() -> None:
     text = _notebook_text()
 
-    assert "annotated_frame, detections, tracks = pipeline.process_frame(frame)" in text
-    assert "annotated_frame, _ = pipeline.process_frame(frame)" not in text
+    assert '"app.py"' in text
+    assert '"--device"' in text
+    assert "subprocess.run(" in text
+    assert "BlindSpotPipeline" not in text
+    assert "pipeline.process_frame" not in text
 
 
 def test_demo_notebook_code_cells_are_plain_python() -> None:
@@ -43,3 +46,12 @@ def test_demo_notebook_code_cells_are_plain_python() -> None:
             continue
         source = "".join(cell.get("source", []))
         compile(source, f"demo_notebook.ipynb cell {index}", "exec")
+
+
+def test_demo_notebook_uses_colab_gpu_app_runner() -> None:
+    text = _notebook_text()
+
+    assert 'device = "0" if torch.cuda.is_available() else "cpu"' in text
+    assert "Colab chưa bật GPU" in text
+    assert '"xvfb-run", "-a", *app_command' in text
+    assert "outputs\" / \"colab_app_output.mp4" in text
