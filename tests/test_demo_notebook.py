@@ -33,6 +33,7 @@ def test_demo_notebook_runs_app_py_instead_of_inline_pipeline() -> None:
 
     assert '"app.py"' in text
     assert '"--device"' in text
+    assert '"--output"' not in text
     assert "subprocess.run(" in text
     assert "BlindSpotPipeline" not in text
     assert "pipeline.process_frame" not in text
@@ -51,7 +52,10 @@ def test_demo_notebook_code_cells_are_plain_python() -> None:
 def test_demo_notebook_uses_colab_gpu_app_runner() -> None:
     text = _notebook_text()
 
-    assert 'device = "0" if torch.cuda.is_available() else "cpu"' in text
+    assert 'device = "0"' in text
+    assert 'else "cpu"' not in text
+    assert "torch.cuda.is_available()" in text
     assert "Colab chưa bật GPU" in text
     assert '"xvfb-run", "-a", *app_command' in text
-    assert "outputs\" / \"colab_app_output.mp4" in text
+    assert "IPython.display" not in text
+    assert "colab_app_output.mp4" not in text
