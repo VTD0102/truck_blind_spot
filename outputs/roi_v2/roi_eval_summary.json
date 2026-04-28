@@ -1,0 +1,54 @@
+{
+  "eval_config": {
+    "weights": "/Users/haidangstore/Projects/truck_blind_spot/truck_blind_spot/weights/best_roiv2.pt",
+    "data": "configs/blindspot.yaml",
+    "roi": "/Users/haidangstore/Projects/truck_blind_spot/truck_blind_spot/configs/roi.json",
+    "roi_profile": "front_camera",
+    "split": "val",
+    "conf_thres": 0.25,
+    "iou_thres": 0.45,
+    "iou_match": 0.5,
+    "imgsz": [
+      640,
+      640
+    ],
+    "num_images": 1600
+  },
+  "overall_metrics": {
+    "total_gt": 4415,
+    "total_gt_in_roi": 3251,
+    "total_tp_in_roi": 2498,
+    "total_fn_in_roi": 753,
+    "recall_in_any_front_roi": 0.7684
+  },
+  "zone_metrics": [
+    {
+      "zone": "forward_danger_zone",
+      "gt": 949,
+      "tp": 639,
+      "fn": 310,
+      "recall": 0.6733
+    },
+    {
+      "zone": "left_blind_spot",
+      "gt": 803,
+      "tp": 621,
+      "fn": 182,
+      "recall": 0.7733
+    },
+    {
+      "zone": "near_cabin_zone",
+      "gt": 732,
+      "tp": 661,
+      "fn": 71,
+      "recall": 0.903
+    },
+    {
+      "zone": "right_blind_spot",
+      "gt": 767,
+      "tp": 577,
+      "fn": 190,
+      "recall": 0.7523
+    }
+  ]
+}

@@ -1,18 +1,5 @@
 """
 app.py – Demo entry point cho Truck Blind Spot Detection.
-
-Chạy nhanh (dùng video mặc định):
-    python3 app.py
-
-Truyền tham số tùy chỉnh:
-    python3 app.py --source assets/videos/demo.mp4 --weights weights/best_small.pt
-    python3 app.py --source 0                          # webcam
-    python3 app.py --source assets/videos/demo.mp4 --output output/result.mp4 --loop
-
-Phím tắt trong cửa sổ hiển thị:
-    p   Pause / Resume
-    r   Restart từ đầu video (chỉ có tác dụng với file video)
-    q   Thoát
 """
 from __future__ import annotations
 
@@ -27,16 +14,15 @@ from src.pipeline import BlindSpotPipeline
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 WINDOW_NAME = "YOLOv9 Blind Spot Demo"
+DEFAULT_WINDOW_WIDTH = 1280
+DEFAULT_WINDOW_HEIGHT = 720
+OVERLAY_FONT_SCALE = 0.5
+OVERLAY_TEXT_THICKNESS = 1
 
-DEFAULT_SOURCE = str(PROJECT_ROOT / "assets" / "videos" / "demo.mp4")
-DEFAULT_WEIGHTS = "weights/best_small.pt"
+DEFAULT_SOURCE = str(PROJECT_ROOT / "assets" / "videos" / "demo4.mp4")
+DEFAULT_WEIGHTS = "weights/best_roiv2.pt"
 DEFAULT_ROI = "configs/roi.json"
 DEFAULT_CLASSES = "configs/classes.yaml"
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────────────────
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,81 +30,53 @@ def parse_args() -> argparse.Namespace:
         description="Truck Blind Spot Detection – demo player",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--source", type=str, default=DEFAULT_SOURCE)
+    parser.add_argument("--weights", type=str, default=DEFAULT_WEIGHTS)
+    parser.add_argument("--roi", type=str, default=DEFAULT_ROI)
     parser.add_argument(
-        "--source",
+        "--roi-profile",
         type=str,
-        default=DEFAULT_SOURCE,
-        help="Đường dẫn video/ảnh hoặc index webcam (0, 1, …)",
+        default="front_camera",
+        choices=["front_camera", "rear_camera"],
     )
+    parser.add_argument("--classes-config", type=str, default=DEFAULT_CLASSES)
+    parser.add_argument("--device", type=str, default="")
+    parser.add_argument("--conf-thres", type=float, default=0.25)
+    parser.add_argument("--iou-thres", type=float, default=0.45)
+    parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--loop", action="store_true")
     parser.add_argument(
-        "--weights",
-        type=str,
-        default=DEFAULT_WEIGHTS,
-        help="Đường dẫn file weights YOLOv9 (.pt)",
-    )
-    parser.add_argument(
-        "--roi",
-        type=str,
-        default=DEFAULT_ROI,
-        help="Đường dẫn file cấu hình ROI (.json)",
-    )
-    parser.add_argument(
-        "--classes-config",
-        type=str,
-        default=DEFAULT_CLASSES,
-        help="Đường dẫn file cấu hình class (.yaml)",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="",
-        help="Device: '' (auto), 'cpu', 'cuda:0', …",
-    )
-    parser.add_argument(
-        "--conf-thres",
+        "--prediction-horizon",
         type=float,
-        default=0.25,
-        help="Confidence threshold",
+        default=1.0,
+        help="Mốc thời gian dự đoán chuyển động tính bằng giây (ví dụ: 0.5, 1.0, 2.0).",
     )
     parser.add_argument(
-        "--iou-thres",
+        "--alert-threshold",
         type=float,
-        default=0.45,
-        help="IoU threshold cho NMS",
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default=None,
-        help="Đường dẫn file video output (để lưu kết quả). Bỏ qua nếu không muốn lưu.",
-    )
-    parser.add_argument(
-        "--loop",
-        action="store_true",
-        help="Tự động replay video khi kết thúc (chỉ áp dụng cho file video)",
+        default=0.6,
+        help="Ngưỡng confidence tối thiểu để kích hoạt cảnh báo chuyển động.",
     )
     return parser.parse_args()
 
 
 def draw_overlay(frame, fps: float, paused: bool) -> None:
-    """Vẽ FPS và trạng thái lên góc trên-trái của frame."""
     status = "PAUSED" if paused else "RUNNING"
     text = f"FPS: {fps:.1f} | {status}"
-    cv2.rectangle(frame, (10, 55), (240, 95), (30, 30, 30), -1)
+    cv2.rectangle(frame, (10, 55), (190, 86), (30, 30, 30), -1)
     cv2.putText(
         frame,
         text,
-        (18, 82),
+        (18, 77),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.65,
+        OVERLAY_FONT_SCALE,
         (255, 255, 255),
-        2,
+        OVERLAY_TEXT_THICKNESS,
         cv2.LINE_AA,
     )
 
 
 def open_capture(source: str) -> cv2.VideoCapture:
-    """Mở VideoCapture từ path hoặc webcam index."""
     cap_source: str | int = int(source) if source.isdigit() else source
     cap = cv2.VideoCapture(cap_source)
     if not cap.isOpened():
@@ -127,7 +85,6 @@ def open_capture(source: str) -> cv2.VideoCapture:
 
 
 def create_writer(cap: cv2.VideoCapture, output_path: str) -> cv2.VideoWriter:
-    """Tạo VideoWriter khớp thông số với capture."""
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -138,39 +95,48 @@ def create_writer(cap: cv2.VideoCapture, output_path: str) -> cv2.VideoWriter:
     return cv2.VideoWriter(str(out_path), fourcc, fps, (width, height))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 def main() -> None:
     args = parse_args()
 
     pipeline = BlindSpotPipeline(
         weights_path=args.weights,
         roi_config_path=args.roi,
+        roi_profile=args.roi_profile,
         classes_config_path=args.classes_config,
         device=args.device,
         conf_threshold=args.conf_thres,
         iou_threshold=args.iou_thres,
+        prediction_horizons_s=[args.prediction_horizon],
+        alert_confidence_threshold=args.alert_threshold,
     )
 
     cap = open_capture(args.source)
     is_file = not args.source.isdigit()
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     writer: cv2.VideoWriter | None = None
     if args.output:
         writer = create_writer(cap, args.output)
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WINDOW_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+    cv2.setWindowProperty(
+        WINDOW_NAME,
+        cv2.WND_PROP_FULLSCREEN,
+        cv2.WINDOW_FULLSCREEN,
+    )
 
     paused = False
     last_frame = None
     smoothed_fps = 0.0
 
-    print(f"[INFO] Source  : {args.source}")
-    print(f"[INFO] Weights : {args.weights}")
-    print(f"[INFO] Device  : {args.device or 'auto'}")
+    print(f"[INFO] Source     : {args.source}")
+    print(f"[INFO] Frame size : {width}x{height}")
+    print(f"[INFO] Weights    : {args.weights}")
+    print(f"[INFO] ROI profile: {args.roi_profile}")
+    print(f"[INFO] Device     : {args.device or 'auto'}")
     print("[INFO] Phím tắt: [p] Pause  [r] Restart  [q] Thoát")
 
     try:
@@ -178,16 +144,29 @@ def main() -> None:
             if not paused:
                 success, frame = cap.read()
 
-                # Hết video
                 if not success:
                     if args.loop and is_file:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         continue
                     break
 
+
                 t0 = time.perf_counter()
-                annotated, _ = pipeline.process_frame(frame)
+                annotated, _, tracks = pipeline.process_frame(frame)
                 elapsed = time.perf_counter() - t0
+
+                # Ghi log cảnh báo chuyển động mức medium/high
+                for track_id, pred in (getattr(pipeline, "last_predictions", None) or {}).items():
+                    if pred.alert_level in ("medium", "high"):
+                        zone = next(
+                            (t.zone_name for t in tracks if t.track_id == track_id),
+                            "?",
+                        )
+                        print(
+                            f"[ALERT] Track {track_id}: {pred.alert_level.upper()} risk"
+                            f" | zone={zone}"
+                            f" | conf={pred.overall_confidence:.2f}"
+                        )
 
                 current_fps = 1.0 / max(elapsed, 1e-6)
                 smoothed_fps = (
@@ -202,7 +181,6 @@ def main() -> None:
                 if writer is not None:
                     writer.write(annotated)
 
-            # Hiển thị
             if last_frame is None:
                 continue
 
