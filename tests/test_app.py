@@ -52,6 +52,7 @@ class _FakePipeline:
 def test_app_main_accepts_pipeline_track_output(monkeypatch) -> None:
     fake_pipeline = _FakePipeline()
     fake_capture = _FakeCapture()
+    window_calls: list[tuple[str, tuple[object, ...]]] = []
 
     monkeypatch.setattr(
         app,
@@ -74,7 +75,21 @@ def test_app_main_accepts_pipeline_track_output(monkeypatch) -> None:
     monkeypatch.setattr(app, "BlindSpotPipeline", lambda **kwargs: fake_pipeline)
     monkeypatch.setattr(app, "open_capture", lambda source: fake_capture)
     monkeypatch.setattr(app, "draw_overlay", lambda frame, fps, paused: None)
-    monkeypatch.setattr(app.cv2, "namedWindow", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        app.cv2,
+        "namedWindow",
+        lambda *args, **kwargs: window_calls.append(("namedWindow", args)),
+    )
+    monkeypatch.setattr(
+        app.cv2,
+        "resizeWindow",
+        lambda *args, **kwargs: window_calls.append(("resizeWindow", args)),
+    )
+    monkeypatch.setattr(
+        app.cv2,
+        "setWindowProperty",
+        lambda *args, **kwargs: window_calls.append(("setWindowProperty", args)),
+    )
     monkeypatch.setattr(app.cv2, "imshow", lambda *args, **kwargs: None)
     monkeypatch.setattr(app.cv2, "waitKey", lambda delay: ord("q"))
     monkeypatch.setattr(app.cv2, "destroyAllWindows", lambda: None)
@@ -83,3 +98,11 @@ def test_app_main_accepts_pipeline_track_output(monkeypatch) -> None:
 
     assert fake_pipeline.frames_processed == 1
     assert fake_capture.released is True
+    assert (
+        "resizeWindow",
+        (app.WINDOW_NAME, app.DEFAULT_WINDOW_WIDTH, app.DEFAULT_WINDOW_HEIGHT),
+    ) in window_calls
+    assert (
+        "setWindowProperty",
+        (app.WINDOW_NAME, app.cv2.WND_PROP_FULLSCREEN, app.cv2.WINDOW_FULLSCREEN),
+    ) in window_calls

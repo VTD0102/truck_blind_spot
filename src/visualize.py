@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import cv2
 import numpy as np
@@ -20,15 +20,27 @@ class BlindSpotVisualizer:
         self,
         normal_color: Tuple[int, int, int] = (0, 200, 0),
         warning_color: Tuple[int, int, int] = (0, 0, 255),
-        thickness: int = 2,
-        font_scale: float = 0.6,
+        thickness: int = 1,
+        font_scale: float = 0.42,
+        text_thickness: int = 1,
         roi_alpha: float = 0.18,
+        show_roi_labels: bool = False,
+        show_detection_zone_labels: bool = False,
+        show_detection_labels: bool = False,
+        show_track_labels: bool = False,
+        show_anchor_points: bool = False,
     ) -> None:
         self.normal_color = normal_color
         self.warning_color = warning_color
         self.thickness = thickness
         self.font_scale = font_scale
+        self.text_thickness = text_thickness
         self.roi_alpha = roi_alpha
+        self.show_roi_labels = show_roi_labels
+        self.show_detection_zone_labels = show_detection_zone_labels
+        self.show_detection_labels = show_detection_labels
+        self.show_track_labels = show_track_labels
+        self.show_anchor_points = show_anchor_points
 
     def draw(
         self,
@@ -47,6 +59,7 @@ class BlindSpotVisualizer:
             self._draw_roi_zones(output, roi_zones)
 
         warning_count = 0
+        danger_entries: List[Tuple[str, Tuple[int, int, int]]] = []
         for detection in detections:
             in_roi = getattr(detection, "in_roi", False)
             zone_name = getattr(detection, "zone_name", None)
@@ -56,28 +69,36 @@ class BlindSpotVisualizer:
             x1, y1, x2, y2 = detection.bbox
             cv2.rectangle(output, (x1, y1), (x2, y2), color, self.thickness)
 
-            label = f"{detection.class_name} {detection.confidence:.2f}"
             if in_roi:
                 warning_count += 1
-                prefix = zone_name if zone_name else "ROI"
-                if risk_level:
-                    prefix = f"{prefix} [{risk_level}]"
-                label = f"{prefix} | {label}"
+                entry = self._danger_legend_entry(risk_level, color)
+                if entry is not None:
+                    danger_entries.append(entry)
 
-            self._draw_label(output, label, (x1, max(24, y1 - 10)), color)
+            if self.show_detection_labels:
+                label = f"{detection.class_name} {detection.confidence:.2f}"
+                if self.show_detection_zone_labels:
+                    prefix = zone_name if zone_name else "ROI"
+                    if risk_level:
+                        prefix = f"{prefix} [{risk_level}]"
+                    label = f"{prefix} | {label}"
+                self._draw_label(output, label, (x1, max(24, y1 - 10)), color)
 
-            if detection.anchor_point is not None:
+            if self.show_anchor_points and detection.anchor_point is not None:
                 cv2.circle(output, detection.anchor_point, 5, color, -1)
 
         if tracks:
-            self._draw_tracks(output, tracks, roi_zones)
+            danger_entries.extend(self._draw_tracks(output, tracks, roi_zones))
 
         # Vẽ quỹ đạo dự đoán nếu có dữ liệu
         if tracks and predictions:
             self._draw_predictions(output, tracks, predictions)
 
+        if danger_entries:
+            self._draw_danger_legend(output, danger_entries)
+
         if warning_count > 0:
-            self._draw_banner(output, f"CANH BAO DIEM MU: {warning_count}")
+            self._draw_banner(output, f"CANH BAO: {warning_count}")
 
         return output
 
@@ -94,6 +115,9 @@ class BlindSpotVisualizer:
             polygon = np.array(zone.points, dtype=np.int32)
             cv2.polylines(frame, [polygon], True, zone.color, 2)
 
+            if not self.show_roi_labels:
+                continue
+
             anchor = polygon[0]
             label_pos = (int(anchor[0]), max(24, int(anchor[1]) - 10))
             text = f"{zone.name} [{zone.risk_level}]"
@@ -104,13 +128,25 @@ class BlindSpotVisualizer:
         frame: np.ndarray,
         tracks: Sequence[Track],
         roi_zones: Optional[Sequence[ROIZone]],
-    ) -> None:
+    ) -> List[Tuple[str, Tuple[int, int, int]]]:
+        danger_entries: List[Tuple[str, Tuple[int, int, int]]] = []
         for track in tracks:
             x1, y1, x2, y2 = self._to_int_bbox(track.bbox)
             color = self._resolve_track_color(track, roi_zones)
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
-            self._draw_label(frame, f"ID {track.track_id}", (x1, min(frame.shape[0] - 10, y2 + 22)), color)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, self.thickness)
+            if track.in_roi:
+                entry = self._danger_legend_entry(track.risk_level, color)
+                if entry is not None:
+                    danger_entries.append(entry)
+
+            if self.show_track_labels:
+                self._draw_label(
+                    frame,
+                    f"ID {track.track_id}",
+                    (x1, min(frame.shape[0] - 10, y2 + 22)),
+                    color,
+                )
 
             anchor = track.anchor_point or (
                 int(round((x1 + x2) / 2.0)),
@@ -136,6 +172,7 @@ class BlindSpotVisualizer:
                 2,
                 tipLength=0.25,
             )
+        return danger_entries
 
     def _draw_predictions(
         self,
@@ -159,9 +196,12 @@ class BlindSpotVisualizer:
                 radius = max(1, int(pt.confidence * 8))
                 cv2.circle(frame, (x, y), radius, alert_color, -1)
 
+            if pred.alert_level not in {"medium", "high"}:
+                continue
+
             # Vẽ nhãn confidence và mức cảnh báo gần bbox
             x1, _, _, y2 = self._to_int_bbox(track.bbox)
-            conf_label = f"conf:{pred.overall_confidence:.2f} [{pred.alert_level}]"
+            conf_label = f"{pred.alert_level} {pred.overall_confidence:.2f}"
             self._draw_label(
                 frame,
                 conf_label,
@@ -205,12 +245,47 @@ class BlindSpotVisualizer:
                 return zone.color
         return self.warning_color
 
+    def _danger_legend_entry(
+        self,
+        risk_level: Optional[str],
+        color: Tuple[int, int, int],
+    ) -> Optional[Tuple[str, Tuple[int, int, int]]]:
+        """Tạo một dòng legend cho trạng thái nguy hiểm."""
+        label = (risk_level or "NGUY HIEM").upper()
+        if label in {"NONE", "LOW"}:
+            return None
+        return label, color
+
+    def _draw_danger_legend(
+        self,
+        frame: np.ndarray,
+        entries: Sequence[Tuple[str, Tuple[int, int, int]]],
+    ) -> None:
+        """Vẽ chú thích màu nguy hiểm ở cạnh phải khung hình."""
+        unique_entries: List[Tuple[str, Tuple[int, int, int]]] = []
+        seen: Set[Tuple[str, Tuple[int, int, int]]] = set()
+        for label, color in entries:
+            key = (label, color)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_entries.append((label, color))
+
+        right_margin = 12
+        label_width = 110
+        x = max(10, frame.shape[1] - label_width - right_margin)
+        y = 28
+        self._draw_label(frame, "NGUY HIEM", (x, y), self.warning_color)
+        for label, color in unique_entries:
+            y += 24
+            self._draw_label(frame, label, (x, y), color)
+
     def _draw_banner(self, frame: np.ndarray, text: str) -> None:
         text_size, _ = cv2.getTextSize(
             text,
             cv2.FONT_HERSHEY_SIMPLEX,
             self.font_scale + 0.1,
-            2,
+            self.text_thickness,
         )
         width = text_size[0] + 20
         height = text_size[1] + 20
@@ -222,7 +297,7 @@ class BlindSpotVisualizer:
             cv2.FONT_HERSHEY_SIMPLEX,
             self.font_scale + 0.1,
             (255, 255, 255),
-            2,
+            self.text_thickness,
             cv2.LINE_AA,
         )
 
@@ -238,7 +313,7 @@ class BlindSpotVisualizer:
             text,
             cv2.FONT_HERSHEY_SIMPLEX,
             self.font_scale,
-            2,
+            self.text_thickness,
         )
         top_left = (x, max(0, y - text_size[1] - baseline - 6))
         bottom_right = (x + text_size[0] + 10, y + 4)
@@ -250,7 +325,7 @@ class BlindSpotVisualizer:
             cv2.FONT_HERSHEY_SIMPLEX,
             self.font_scale,
             (255, 255, 255),
-            2,
+            self.text_thickness,
             cv2.LINE_AA,
         )
 

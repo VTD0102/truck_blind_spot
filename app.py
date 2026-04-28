@@ -14,6 +14,10 @@ from src.pipeline import BlindSpotPipeline
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 WINDOW_NAME = "YOLOv9 Blind Spot Demo"
+DEFAULT_WINDOW_WIDTH = 1280
+DEFAULT_WINDOW_HEIGHT = 720
+OVERLAY_FONT_SCALE = 0.5
+OVERLAY_TEXT_THICKNESS = 1
 
 DEFAULT_SOURCE = str(PROJECT_ROOT / "assets" / "videos" / "demo4.mp4")
 DEFAULT_WEIGHTS = "weights/best_roiv2.pt"
@@ -59,15 +63,15 @@ def parse_args() -> argparse.Namespace:
 def draw_overlay(frame, fps: float, paused: bool) -> None:
     status = "PAUSED" if paused else "RUNNING"
     text = f"FPS: {fps:.1f} | {status}"
-    cv2.rectangle(frame, (10, 55), (240, 95), (30, 30, 30), -1)
+    cv2.rectangle(frame, (10, 55), (190, 86), (30, 30, 30), -1)
     cv2.putText(
         frame,
         text,
-        (18, 82),
+        (18, 77),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.65,
+        OVERLAY_FONT_SCALE,
         (255, 255, 255),
-        2,
+        OVERLAY_TEXT_THICKNESS,
         cv2.LINE_AA,
     )
 
@@ -117,6 +121,12 @@ def main() -> None:
         writer = create_writer(cap, args.output)
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WINDOW_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+    cv2.setWindowProperty(
+        WINDOW_NAME,
+        cv2.WND_PROP_FULLSCREEN,
+        cv2.WINDOW_FULLSCREEN,
+    )
 
     paused = False
     last_frame = None

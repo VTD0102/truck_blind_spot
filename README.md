@@ -24,31 +24,87 @@ Frame → YOLOv9 Detection → Multi-zone ROI → Kalman Tracking → Motion Pre
 git clone https://github.com/VTD0102/truck_blind_spot.git
 cd truck_blind_spot
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
 **Yêu cầu:** Python 3.10+, PyTorch ≥ 2.0, OpenCV ≥ 4.8
 
-## Chạy Demo
+## Cách Chạy
+
+### 1. Kiểm tra file cần thiết
+
+Demo mặc định dùng các file sau:
+
+| Loại | Mặc định |
+|------|----------|
+| Model weights | `weights/best_roiv2.pt` |
+| Video input | `assets/videos/demo4.mp4` |
+| ROI config | `configs/roi.json` |
+| ROI profile | `front_camera` |
+| Class config | `configs/classes.yaml` |
+
+Nếu dùng file khác, truyền đường dẫn tương đối từ project root qua CLI.
+
+### 2. Chạy demo mặc định
 
 ```bash
-# Demo mặc định: best_6k.pt + demo4.mp4 + front_camera ROI
-python3 app.py
-
-# Tùy chỉnh source / output / profile
-python3 app.py --source assets/videos/demo.mp4 --output outputs/result.mp4
-python3 app.py --source 0                          # webcam
-python3 app.py --roi-profile rear_camera
-python3 app.py --loop                              # lặp video file
-
-# Điều chỉnh ngưỡng detection
-python3 app.py --conf-thres 0.3 --iou-thres 0.5
-
-# Điều chỉnh motion prediction
-python3 app.py --prediction-horizon 1.0 --alert-threshold 0.5
+python app.py
 ```
 
-**Phím điều khiển:** `p` tạm dừng · `r` restart · `q` thoát
+`app.py` mở cửa sổ OpenCV để hiển thị kết quả realtime, vì vậy cần chạy trong môi trường có GUI/display. Phím điều khiển:
+
+| Phím | Chức năng |
+|------|-----------|
+| `p` | Tạm dừng / tiếp tục |
+| `r` | Chạy lại video từ đầu |
+| `q` | Thoát |
+
+### 3. Chạy với input/output khác
+
+```bash
+# Chạy video khác và lưu kết quả
+python app.py --source assets/videos/demo.mp4 --output outputs/result.mp4
+
+# Chạy webcam
+python app.py --source 0
+
+# Lặp lại video file khi đọc đến cuối
+python app.py --loop
+
+# Chọn profile ROI khác
+python app.py --roi-profile rear_camera
+
+# Dùng weights / ROI / classes config khác
+python app.py \
+  --weights weights/best_6k.pt \
+  --roi configs/roi.json \
+  --classes-config configs/classes.yaml
+```
+
+### 4. Chọn thiết bị và điều chỉnh ngưỡng
+
+```bash
+# CPU
+python app.py --device cpu
+
+# GPU CUDA đầu tiên
+python app.py --device 0
+
+# Điều chỉnh ngưỡng detection
+python app.py --conf-thres 0.3 --iou-thres 0.5
+
+# Điều chỉnh motion prediction
+python app.py --prediction-horizon 1.0 --alert-threshold 0.5
+```
+
+### 5. Chạy tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+Tests không cần GPU, weights `.pt`, hoặc video thật.
 
 ## Cấu Trúc Project
 
@@ -82,7 +138,8 @@ truck_blind_spot/
 │   └── blindspot.yaml           # Dataset config cho training/eval
 │
 ├── weights/
-│   ├── best_6k.pt               # Checkpoint chính (mặc định)
+│   ├── best_roiv2.pt            # Checkpoint chính (mặc định cho app.py)
+│   ├── best_6k.pt
 │   └── best_pilot_4k5.pt
 │
 ├── assets/videos/               # Video test
