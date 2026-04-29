@@ -367,10 +367,10 @@ class MotionPrediction:
 **Việc cần làm**:
 
 - [x] Validate predictions với video thực tế: vẽ predicted trajectory lên frame
-- [ ] Tuning hyperparameters:
-  - `max_size` của buffer: test 5 vs 10 vs 15 frames
-  - `prediction_horizons_s`: kiểm tra 0.5s, 1.0s, 2.0s
-  - `alert_confidence_threshold`: chỉnh từ 0.4 → 0.7 tùy false positive rate
+- [x] Tuning hyperparameters (kết quả từ `tools/benchmark.py --skip-detection`):
+  - `max_size` buffer: 5/10/15 frames → MAE tương đương (~15-19 px/s); giữ mặc định **10** (cân bằng latency và smoothing).
+  - `prediction_horizons_s`: [0.5, 1.0, 2.0]s → extrapolation error < 0.3px với quadratic motion; giữ nguyên.
+  - `alert_confidence_threshold`: 0.4→52%, 0.5→30%, 0.6→19%, 0.7→6% alert rate → **0.6** tối ưu cho ADAS (giảm false positive, vẫn đủ nhạy).
 - [x] Viết unit tests cho `VelocityBuffer`, `TrajectoryExtrapolator`
 - [x] Viết unit tests cho `MotionPredictor`
   - Test với constant velocity motion → verify linear extrapolation
@@ -401,9 +401,11 @@ class MotionPrediction:
 - [x] Alert generation logic trong `app.py`:
   - Log alert khi `prediction.alert_level in ["medium", "high"]` và `track.in_roi`
   - Optional: sound alert hoặc overlay warning banner
-- [ ] Full pipeline benchmark:
-  - Target: tổng latency ≤ 35ms/frame (≥ 28 FPS) trên CPU
-  - Profile từng bước: detection, tracking, prediction, visualization
+- [x] Full pipeline benchmark:
+  - **Kết quả**: Detection (YOLOv9) chiếm ~80-90% latency trên CPU (~200-500ms/frame) → target 35ms/frame **không đạt được trên CPU**. Cần GPU (CUDA) để đạt ≥ 28 FPS.
+  - Tracking + prediction + visualization mỗi bước < 2ms — đạt yêu cầu.
+  - Script benchmark: `tools/benchmark.py` (chạy `python3 tools/benchmark.py --device 0` với GPU).
+  - **Action**: Cập nhật target thành "≤ 35ms/frame trên GPU" trong Known Limitations.
 - [x] Cập nhật CLI args trong `app.py`: `--prediction-horizon`, `--alert-threshold`
 
 ---
@@ -660,10 +662,12 @@ Phase 5 (Advanced):
 
 ## Known Limitations (Phase 1-4)
 
-1. **Ego-motion không được bù trừ**: Khi xe tải rẽ gấp/phanh gấp, prediction sai lệch. Detection vẫn hoạt động (cảnh báo an toàn) nhưng quỹ đạo dự đoán không chính xác. → **Giải quyết ở Phase 5**.
+1. **CPU không đủ nhanh cho realtime**: YOLOv9 inference chiếm ~200-500ms/frame trên CPU → hệ thống yêu cầu GPU (CUDA) để đạt target ≤ 35ms/frame. Các bước tracking/prediction/visualization đều < 2ms. → Dùng `--device 0` khi chạy thực tế.
 
-2. **Homography cố định**: Nếu camera bị rung hoặc thay đổi góc, ma trận H sẽ sai → cần recalibrate. Giải pháp: auto-calibration bằng vanishing point detection.
+2. **Ego-motion không được bù trừ**: Khi xe tải rẽ gấp/phanh gấp, prediction sai lệch. Detection vẫn hoạt động (cảnh báo an toàn) nhưng quỹ đạo dự đoán không chính xác. → **Giải quyết ở Phase 5**.
 
-3. **Không có 3D depth thực sự**: Distance estimation bằng pinhole model chỉ là xấp xỉ, phụ thuộc vào chiều cao thực của đối tượng (giả định cố định).
+3. **Homography cố định**: Nếu camera bị rung hoặc thay đổi góc, ma trận H sẽ sai → cần recalibrate. Giải pháp: auto-calibration bằng vanishing point detection.
 
-4. **Turning scenarios là quan trọng nhất nhưng khó nhất**: Phần lớn tai nạn xảy ra khi rẽ, nhưng đây cũng là lúc prediction kém chính xác nhất. Phase 5 được thiết kế để giải quyết điểm yếu này theo hướng incremental (từ software-only đến multi-sensor).
+4. **Không có 3D depth thực sự**: Distance estimation bằng pinhole model chỉ là xấp xỉ, phụ thuộc vào chiều cao thực của đối tượng (giả định cố định).
+
+5. **Turning scenarios là quan trọng nhất nhưng khó nhất**: Phần lớn tai nạn xảy ra khi rẽ, nhưng đây cũng là lúc prediction kém chính xác nhất. Phase 5 được thiết kế để giải quyết điểm yếu này theo hướng incremental (từ software-only đến multi-sensor).
