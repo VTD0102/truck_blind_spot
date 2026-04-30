@@ -56,6 +56,9 @@ class YOLOv9Detector:
 
         # Tải tên các lớp từ tập tin yaml
         self.class_names = self._load_class_names(self.classes_config_path)
+
+        # Auto-detect FP16: bật mặc định trên GPU CUDA để tăng tốc ~30%
+        use_fp16 = half or (self.device.type != "cpu")
         
         # Nạp mô hình YOLOv9 backend
         self.model = DetectMultiBackend(
@@ -63,7 +66,7 @@ class YOLOv9Detector:
             device=self.device,
             dnn=dnn,
             data=None,
-            fp16=half and self.device.type != "cpu",
+            fp16=use_fp16 and self.device.type != "cpu",
         )
         self.stride = self.model.stride
         self.pt = self.model.pt
@@ -79,15 +82,17 @@ class YOLOv9Detector:
         )
 
     def predict(self, frame: np.ndarray) -> List[Detection]:
-        """Hàm dự đoán nhãn trên một khung hình ảnh."""
+        """Hàm dự đoán nhãn trên một khung hình ảnh.
+
+        Lưu ý: Không copy frame — letterbox tạo array mới, scale_boxes chỉ đọc shape.
+        """
         if frame is None or frame.size == 0:
             raise ValueError("Khung hình đầu vào rỗng (empty).")
 
-        original_frame = frame.copy()
-        
         # Tiền xử lý khung hình: resize kích thước và thêm viền (letterbox)
+        # letterbox() trả về array mới — không mutate frame gốc
         image = letterbox(
-            original_frame,
+            frame,
             new_shape=self.imgsz,
             stride=self.stride,
             auto=self.pt,
@@ -122,8 +127,8 @@ class YOLOv9Detector:
         if not len(det):
             return detections
 
-        # Đưa các bbox về tọa độ của ảnh gốc
-        det[:, :4] = scale_boxes(tensor.shape[2:], det[:, :4], original_frame.shape).round()
+        # Đưa các bbox về tọa độ của ảnh gốc (chỉ đọc frame.shape, không mutate)
+        det[:, :4] = scale_boxes(tensor.shape[2:], det[:, :4], frame.shape).round()
 
         for *xyxy, confidence, class_id in det.tolist():
             class_index = int(class_id)

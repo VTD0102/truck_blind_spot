@@ -103,13 +103,26 @@ class BlindSpotVisualizer:
         return output
 
     def _draw_roi_zones(self, frame: np.ndarray, roi_zones: Sequence[ROIZone]) -> None:
-        overlay = frame.copy()
+        h, w = frame.shape[:2]
+        cache_key = (w, h, id(roi_zones), len(roi_zones))
 
-        for zone in roi_zones:
-            polygon = np.array(zone.points, dtype=np.int32)
-            cv2.fillPoly(overlay, [polygon], zone.color)
+        # Cache ROI overlay mask — tránh frame.copy() + addWeighted() mỗi frame
+        if getattr(self, "_roi_cache_key", None) != cache_key:
+            # Tạo mask chứa vùng ROI fill
+            mask = np.zeros((h, w, 3), dtype=np.uint8)
+            for zone in roi_zones:
+                polygon = np.array(zone.points, dtype=np.int32)
+                cv2.fillPoly(mask, [polygon], zone.color)
+            self._roi_mask = mask
+            self._roi_cache_key = cache_key
 
-        cv2.addWeighted(overlay, self.roi_alpha, frame, 1.0 - self.roi_alpha, 0, frame)
+        # Blend mask vào frame (in-place, nhanh hơn copy + addWeighted)
+        np.add(
+            frame,
+            (self._roi_mask.astype(np.float32) * self.roi_alpha).astype(np.uint8),
+            out=frame,
+            casting="unsafe",
+        )
 
         for zone in roi_zones:
             polygon = np.array(zone.points, dtype=np.int32)

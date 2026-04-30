@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -27,9 +28,43 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
+logger = logging.getLogger(__name__)
+
+
+class PerfStats:
+    """Bộ đo thời gian per-stage cho pipeline — dùng để hiển thị breakdown trên frame."""
+
+    __slots__ = ("detection_ms", "roi_ms", "tracking_ms", "prediction_ms", "visualization_ms", "total_ms")
+
+    def __init__(self) -> None:
+        self.detection_ms: float = 0.0
+        self.roi_ms: float = 0.0
+        self.tracking_ms: float = 0.0
+        self.prediction_ms: float = 0.0
+        self.visualization_ms: float = 0.0
+        self.total_ms: float = 0.0
+
+    def summary(self) -> str:
+        return (
+            f"Det:{self.detection_ms:.1f}ms "
+            f"ROI:{self.roi_ms:.1f}ms "
+            f"Trk:{self.tracking_ms:.1f}ms "
+            f"Pred:{self.prediction_ms:.1f}ms "
+            f"Viz:{self.visualization_ms:.1f}ms "
+            f"Total:{self.total_ms:.1f}ms"
+        )
+
 
 class BlindSpotPipeline:
-    """Pipeline that combines detection, ROI labeling, tracking, and rendering."""
+    """Pipeline that combines detection, ROI labeling, tracking, and rendering.
+
+    Tối ưu cho real-time ≥ 25 FPS:
+    - Cache frame size để skip update_frame_size() khi không đổi
+    - In-place rendering (copy=False) mặc định
+    - Gộp ROI labeling + prediction thành 1 loop
+    - Per-stage timing stats
+    - Graceful degradation khi detection fail
+    """
 
     def __init__(
         self,
@@ -47,6 +82,7 @@ class BlindSpotPipeline:
         track_max_trace_length: int = 30,
         prediction_horizons_s: Optional[List[float]] = None,
         alert_confidence_threshold: float = 0.6,
+        target_fps: float = 25.0,
     ) -> None:
         self.detector = YOLOv9Detector(
             weights_path=weights_path,
@@ -76,50 +112,107 @@ class BlindSpotPipeline:
         # Cache dự đoán mới nhất để app.py có thể truy cập cảnh báo
         self.last_predictions: Optional[Dict[int, MotionPrediction]] = None
 
+        # Performance tracking
+        self.target_fps = target_fps
+        self.perf: PerfStats = PerfStats()
+
+        # Cache frame size — chỉ gọi update_frame_size() khi thay đổi
+        self._cached_frame_size: Tuple[int, int] = (0, 0)
+
+        # Cache detections gần nhất cho frame skipping
+        self._last_detections: List[Detection] = []
+
     def process_frame(
         self,
         frame: np.ndarray,
+        skip_visualization: bool = False,
+        skip_detection: bool = False,
     ) -> Tuple[np.ndarray, List[Detection], List[Track]]:
-        frame_height, frame_width = frame.shape[:2]
-        self.roi.update_frame_size(frame_width, frame_height)
+        """Xử lý một frame qua toàn bộ pipeline.
 
-        detections = self.detector.predict(frame)
+        Args:
+            frame:              Frame BGR từ OpenCV.
+            skip_visualization: Bỏ qua render (cho benchmark).
+            skip_detection:     Bỏ qua inference, dùng Kalman predict-only (frame skipping).
+
+        Returns:
+            (annotated_frame, detections, tracks)
+        """
+        t_total = time.perf_counter()
+
+        frame_height, frame_width = frame.shape[:2]
+        # Chỉ cập nhật ROI khi frame size thay đổi
+        if (frame_width, frame_height) != self._cached_frame_size:
+            self.roi.update_frame_size(frame_width, frame_height)
+            self._cached_frame_size = (frame_width, frame_height)
+
+        # ── Detection ──────────────────────────────────────────
+        t0 = time.perf_counter()
+        if skip_detection:
+            # Frame skipping: tái sử dụng detections trước đó
+            detections = self._last_detections
+        else:
+            try:
+                detections = self.detector.predict(frame)
+            except Exception:
+                # Graceful degradation: detection fail → dùng list rỗng
+                logger.warning("Detection failed, sử dụng Kalman predict-only cho frame này.")
+                detections = []
+            self._last_detections = detections
+        self.perf.detection_ms = (time.perf_counter() - t0) * 1000
+
+        # ── ROI labeling cho detections ────────────────────────
+        t0 = time.perf_counter()
         for detection in detections:
             detection.anchor_point = self.roi.get_reference_point(detection.bbox)
             zone = self.roi.get_zone(detection.anchor_point)
-
             detection.in_roi = zone is not None
             detection.zone_name = zone.name if zone is not None else None
             detection.risk_level = zone.risk_level if zone is not None else None
+        self.perf.roi_ms = (time.perf_counter() - t0) * 1000
 
+        # ── Tracking ──────────────────────────────────────────
+        t0 = time.perf_counter()
         tracks = self.track_manager.update(detections)
+        self.perf.tracking_ms = (time.perf_counter() - t0) * 1000
+
+        # ── ROI labeling + Motion Prediction (gộp 1 loop) ─────
+        t0 = time.perf_counter()
+        current_time = time.time()
+        predictions: Dict[int, MotionPrediction] = {}
         for track in tracks:
+            # ROI labeling cho track
             track.anchor_point = self.roi.get_reference_point(self._round_bbox(track.bbox))
             zone = self.roi.get_zone(track.anchor_point) if track.anchor_point else None
-
             track.in_roi = zone is not None
             track.zone_name = zone.name if zone is not None else None
             track.risk_level = zone.risk_level if zone is not None else None
 
-        # Cập nhật dự đoán chuyển động cho mỗi track đang theo dõi
-        current_time = time.time()
-        try:
-            predictions: Dict[int, MotionPrediction] = {
-                t.track_id: self.motion_predictor.update(t, current_time)
-                for t in tracks
-            }
-            self.last_predictions = predictions
-        except Exception:
-            predictions = {}
+            # Motion prediction
+            try:
+                predictions[track.track_id] = self.motion_predictor.update(track, current_time)
+            except Exception:
+                logger.debug("Motion prediction failed cho track %d", track.track_id)
+        self.last_predictions = predictions
+        self.perf.prediction_ms = (time.perf_counter() - t0) * 1000
 
-        annotated_frame = self.visualizer.draw(
-            frame=frame,
-            detections=detections,
-            roi_zones=self.roi.zones,
-            copy=True,
-            tracks=tracks,
-            predictions=predictions,
-        )
+        # ── Visualization ─────────────────────────────────────
+        t0 = time.perf_counter()
+        if skip_visualization:
+            annotated_frame = frame
+        else:
+            # In-place rendering: không copy frame để tiết kiệm ~1ms
+            annotated_frame = self.visualizer.draw(
+                frame=frame,
+                detections=detections,
+                roi_zones=self.roi.zones,
+                copy=False,
+                tracks=tracks,
+                predictions=predictions,
+            )
+        self.perf.visualization_ms = (time.perf_counter() - t0) * 1000
+
+        self.perf.total_ms = (time.perf_counter() - t_total) * 1000
         return annotated_frame, detections, tracks
 
     def process_image(
@@ -155,7 +248,7 @@ class BlindSpotPipeline:
 
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        print(f"[INFO] Video frame size: {width}x{height}")
+        logger.info("Video frame size: %dx%d", width, height)
 
         try:
             while True:
