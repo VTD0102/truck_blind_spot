@@ -80,6 +80,37 @@ def _resolve_assignment_metric(
     )
 
 
+def _compute_iou_matrix_vectorized(
+    tracks: Sequence[HasBBox],
+    detections: Sequence[HasBBox],
+) -> np.ndarray:
+    """Tính IoU matrix bằng NumPy broadcast — nhanh hơn Python loop khi N*M lớn.
+
+    Args:
+        tracks:     Danh sách track (cần có .bbox).
+        detections: Danh sách detection (cần có .bbox).
+
+    Returns:
+        Ma trận IoU shape (N, M) với N = len(tracks), M = len(detections).
+    """
+    t_boxes = np.array([t.bbox for t in tracks], dtype=np.float64)    # (N, 4)
+    d_boxes = np.array([d.bbox for d in detections], dtype=np.float64)  # (M, 4)
+
+    # Broadcast intersection: (N, 1, 4) vs (1, M, 4)
+    x1 = np.maximum(t_boxes[:, None, 0], d_boxes[None, :, 0])
+    y1 = np.maximum(t_boxes[:, None, 1], d_boxes[None, :, 1])
+    x2 = np.minimum(t_boxes[:, None, 2], d_boxes[None, :, 2])
+    y2 = np.minimum(t_boxes[:, None, 3], d_boxes[None, :, 3])
+
+    inter = np.maximum(0.0, x2 - x1) * np.maximum(0.0, y2 - y1)
+
+    area_t = np.maximum(0.0, t_boxes[:, 2] - t_boxes[:, 0]) * np.maximum(0.0, t_boxes[:, 3] - t_boxes[:, 1])
+    area_d = np.maximum(0.0, d_boxes[:, 2] - d_boxes[:, 0]) * np.maximum(0.0, d_boxes[:, 3] - d_boxes[:, 1])
+
+    union = area_t[:, None] + area_d[None, :] - inter
+    return np.where(union > 0.0, inter / union, 0.0)
+
+
 def match_tracks_detections(
     tracks: Sequence[HasBBox],
     detections: Sequence[HasBBox],
@@ -95,19 +126,26 @@ def match_tracks_detections(
     if not detections:
         return [], list(range(len(tracks))), []
 
-    assignment_metric = _resolve_assignment_metric(distance_metric)
     num_tracks = len(tracks)
     num_detections = len(detections)
-    score_matrix = np.zeros((num_tracks, num_detections), dtype=np.float64)
 
-    for track_idx, track in enumerate(tracks):
-        for detection_idx, detection in enumerate(detections):
-            score_matrix[track_idx, detection_idx] = assignment_metric.pairwise_score(
-                track,
-                detection,
-            )
+    # Fast path: vectorized IoU (mặc định, dùng NumPy broadcast)
+    normalized_metric = distance_metric.strip().lower() if isinstance(distance_metric, str) else distance_metric
+    if normalized_metric == "iou":
+        score_matrix = _compute_iou_matrix_vectorized(tracks, detections)
+        cost_matrix = 1.0 - score_matrix
+    else:
+        # Fallback: pairwise Python loop cho các metric khác
+        assignment_metric = _resolve_assignment_metric(distance_metric)
+        score_matrix = np.zeros((num_tracks, num_detections), dtype=np.float64)
+        for track_idx, track in enumerate(tracks):
+            for detection_idx, detection in enumerate(detections):
+                score_matrix[track_idx, detection_idx] = assignment_metric.pairwise_score(
+                    track,
+                    detection,
+                )
+        cost_matrix = assignment_metric.to_cost_matrix(score_matrix)
 
-    cost_matrix = assignment_metric.to_cost_matrix(score_matrix)
     row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
     matches: List[Match] = []
@@ -116,7 +154,7 @@ def match_tracks_detections(
 
     for track_idx, detection_idx in zip(row_indices, col_indices):
         score = score_matrix[track_idx, detection_idx]
-        if not assignment_metric.is_valid_match(score, iou_threshold):
+        if score < iou_threshold:
             continue
 
         matches.append((track_idx, detection_idx))

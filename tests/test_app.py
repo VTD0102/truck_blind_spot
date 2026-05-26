@@ -38,13 +38,29 @@ class _FakeCapture:
         self.released = True
 
 
+class _FakePipelinePerf:
+    """Giả lập PerfStats để test."""
+    detection_ms = 0.0
+    roi_ms = 0.0
+    tracking_ms = 0.0
+    prediction_ms = 0.0
+    visualization_ms = 0.0
+    total_ms = 0.0
+    def summary(self) -> str:
+        return "Det:0.0ms"
+
+
 class _FakePipeline:
     def __init__(self) -> None:
         self.frames_processed = 0
+        self.last_predictions = {}
+        self.perf = _FakePipelinePerf()
 
     def process_frame(
         self,
         frame: np.ndarray,
+        skip_visualization: bool = False,
+        skip_detection: bool = False,
     ) -> tuple[np.ndarray, list[object], list[object]]:
         self.frames_processed += 1
         return frame.copy(), [], []
@@ -72,11 +88,15 @@ def test_app_main_accepts_pipeline_track_output(monkeypatch) -> None:
             no_display=False,
             prediction_horizon=1.0,
             alert_threshold=0.6,
+            target_fps=25.0,
+            alert_log=None,
+            enable_frame_skip=False,
+            enable_adaptive_scale=False,
         ),
     )
     monkeypatch.setattr(app, "BlindSpotPipeline", lambda **kwargs: fake_pipeline)
     monkeypatch.setattr(app, "open_capture", lambda source: fake_capture)
-    monkeypatch.setattr(app, "draw_overlay", lambda frame, fps, paused: None)
+    monkeypatch.setattr(app, "draw_overlay", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         app.cv2,
         "namedWindow",
@@ -131,11 +151,15 @@ def test_app_main_no_display_skips_opencv_window_calls(monkeypatch) -> None:
             no_display=True,
             prediction_horizon=1.0,
             alert_threshold=0.6,
+            target_fps=25.0,
+            alert_log=None,
+            enable_frame_skip=False,
+            enable_adaptive_scale=False,
         ),
     )
     monkeypatch.setattr(app, "BlindSpotPipeline", lambda **kwargs: fake_pipeline)
     monkeypatch.setattr(app, "open_capture", lambda source: fake_capture)
-    monkeypatch.setattr(app, "draw_overlay", lambda frame, fps, paused: None)
+    monkeypatch.setattr(app, "draw_overlay", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         app.cv2,
         "namedWindow",
