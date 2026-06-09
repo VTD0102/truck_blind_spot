@@ -124,3 +124,50 @@ def test_mps_predict_returns_cpu_tensor_before_nms(monkeypatch):
                     det.predict(frame)
 
     assert captured["device"] == "cpu"
+
+
+def test_coreml_init_raises_when_mlpackage_missing(monkeypatch):
+    with mock.patch("src.detector.DetectMultiBackend"):
+        with mock.patch("src.detector.select_device", return_value=torch.device("cpu")):
+            with mock.patch("src.detector.check_img_size", return_value=(640, 640)):
+                with pytest.raises(FileNotFoundError, match="export_coreml.py"):
+                    YOLOv9Detector(
+                        weights_path="weights/best_roiv2.pt",
+                        device="",
+                        backend="coreml",
+                    )
+
+
+def test_coreml_predict_calls_model_predict(monkeypatch):
+    """CoreML path gọi self._coreml_model.predict() với input đúng shape."""
+    mock_coreml_model = mock.MagicMock()
+    fake_output_tensor = np.zeros((1, 25200, 7), dtype=np.float32)
+    mock_coreml_model.predict.return_value = {"output": fake_output_tensor}
+    mock_spec = mock.MagicMock()
+    mock_spec.description.output[0].name = "output"
+    mock_spec.description.input[0].name = "image"
+    mock_coreml_model.get_spec.return_value = mock_spec
+
+    mock_ct = mock.MagicMock()
+    mock_ct.models.MLModel.return_value = mock_coreml_model
+
+    with mock.patch("src.detector.DetectMultiBackend"):
+        with mock.patch("src.detector.select_device", return_value=torch.device("cpu")):
+            with mock.patch("src.detector.check_img_size", return_value=(640, 640)):
+                with mock.patch.dict("sys.modules", {"coremltools": mock_ct}):
+                    with mock.patch("pathlib.Path.exists", return_value=True):
+                        det = YOLOv9Detector(
+                            weights_path="weights/best_roiv2.pt",
+                            device="",
+                            backend="coreml",
+                        )
+
+    with mock.patch("src.detector.non_max_suppression", return_value=[torch.zeros((0, 6))]):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        result = det.predict(frame)
+
+    assert mock_coreml_model.predict.called
+    call_args = mock_coreml_model.predict.call_args[0][0]
+    assert "image" in call_args
+    assert call_args["image"].shape == (1, 3, 640, 640)
+    assert result == []

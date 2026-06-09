@@ -71,7 +71,18 @@ class YOLOv9Detector:
 
         # FP16 chỉ bật cho CUDA — MPS FP32 đủ nhanh, CoreML tự quản lý precision
         use_fp16 = (half or self.device.type == "cuda") and self.device.type != "mps"
-        
+
+        # CoreML path: bỏ qua DetectMultiBackend và warmup
+        if self.backend == "coreml":
+            self.stride = 32
+            self.pt = False
+            self.fp16 = False
+            self.imgsz = check_img_size(image_size, s=self.stride)
+            mlpackage_path = str(Path(self.weights_path).with_suffix(".mlpackage"))
+            self._init_coreml(mlpackage_path)
+            self.model = None  # CoreML không dùng DetectMultiBackend
+            return
+
         # Nạp mô hình YOLOv9 backend
         self.model = DetectMultiBackend(
             self.weights_path,
@@ -100,6 +111,9 @@ class YOLOv9Detector:
         """
         if frame is None or frame.size == 0:
             raise ValueError("Khung hình đầu vào rỗng (empty).")
+
+        if self.backend == "coreml":
+            return self._predict_coreml(frame)
 
         # Đẩy dữ liệu lên GPU/CPU
         img = self._preprocess(frame)
@@ -153,6 +167,61 @@ class YOLOv9Detector:
         img = letterbox(frame, new_shape=self.imgsz, stride=self.stride, auto=self.pt)[0]
         img = img.transpose((2, 0, 1))[::-1]
         return np.ascontiguousarray(img).astype(np.float32) / 255.0
+
+    def _init_coreml(self, mlpackage_path: str) -> None:
+        """Khởi tạo CoreML model từ .mlpackage."""
+        if not Path(mlpackage_path).exists():
+            raise FileNotFoundError(
+                f"CoreML model không tìm thấy: {mlpackage_path}\n"
+                f"Chạy trước: python3 tools/export_coreml.py --weights {self.weights_path}"
+            )
+
+        import coremltools as ct  # import lazy — chỉ khi dùng CoreML
+
+        self._coreml_model = ct.models.MLModel(mlpackage_path)
+        spec = self._coreml_model.get_spec()
+        self._coreml_output_key = spec.description.output[0].name
+        self._coreml_input_key = spec.description.input[0].name
+
+    def _predict_coreml(self, frame: np.ndarray) -> List[Detection]:
+        """Inference qua CoreML backend."""
+        img = self._preprocess(frame)
+        input_arr = img[np.newaxis]  # (1, 3, H, W) float32
+
+        out = self._coreml_model.predict({self._coreml_input_key: input_arr})
+        raw = out[self._coreml_output_key]
+        predictions = torch.from_numpy(raw if isinstance(raw, np.ndarray) else np.array(raw))
+
+        predictions = non_max_suppression(
+            predictions,
+            self.conf_threshold,
+            self.iou_threshold,
+            self.classes,
+            self.agnostic_nms,
+            max_det=self.max_det,
+        )
+
+        detections: List[Detection] = []
+        det = predictions[0]
+        if not len(det):
+            return detections
+
+        det[:, :4] = scale_boxes(
+            (self.imgsz[0], self.imgsz[1]), det[:, :4], frame.shape
+        ).round()
+
+        for *xyxy, confidence, class_id in det.tolist():
+            class_index = int(class_id)
+            x1, y1, x2, y2 = [int(v) for v in xyxy]
+            detections.append(
+                Detection(
+                    bbox=(x1, y1, x2, y2),
+                    confidence=float(confidence),
+                    class_id=class_index,
+                    class_name=self.class_names.get(class_index, str(class_index)),
+                )
+            )
+        return detections
 
     @staticmethod
     def _unwrap_predictions(predictions):
