@@ -5,7 +5,6 @@ Chạy một lần trên máy macOS Apple Silicon:
     python3 tools/export_coreml.py --weights weights/best_roiv2.pt
 
 Output:
-    weights/best_roiv2.onnx
     weights/best_roiv2.mlpackage/
 """
 from __future__ import annotations
@@ -37,7 +36,6 @@ def export(weights: str, imgsz: tuple[int, int] = (640, 640)) -> None:
     if not weights_path.exists():
         raise FileNotFoundError(f"Weights không tồn tại: {weights_path}")
 
-    onnx_path = weights_path.with_suffix(".onnx")
     mlpackage_path = weights_path.with_suffix(".mlpackage")
 
     # ── Bước 1: Load model trên CPU ──────────────────────────────────────
@@ -54,32 +52,27 @@ def export(weights: str, imgsz: tuple[int, int] = (640, 640)) -> None:
 
     dummy = torch.zeros(1, 3, *imgsz)
 
-    # ── Bước 2: PT → ONNX ────────────────────────────────────────────────
-    import onnx  # lazy import — tránh lỗi khi chạy --help
+    # ── Bước 2: PT → TorchScript ─────────────────────────────────────────
+    logger.info("Trace model sang TorchScript ...")
+    with torch.no_grad():
+        # Warmup: chạy 1 lần để DDetect pre-compute self.anchors + self.shape.
+        # Sau warmup, nhánh make_anchors() sẽ bị skip khi trace (shape đã khớp)
+        # → loại bỏ int() cast của anchor_generator khỏi TorchScript graph.
+        _ = model(dummy)
+        # check_trace=False: YOLOv9 anchor generator dùng dynamic control flow
+        # gây false-positive sanity check; trace vẫn đúng với input cố định 640×640
+        traced_model = torch.jit.trace(model, dummy, strict=False, check_trace=False)
+    logger.info("TorchScript trace thành công.")
 
-    logger.info("Export sang ONNX: %s ...", onnx_path)
-    torch.onnx.export(
-        model,
-        dummy,
-        str(onnx_path),
-        input_names=["images"],
-        output_names=["output0"],
-        opset_version=12,
-        dynamic_axes={"images": {0: "batch_size"}, "output0": {0: "batch_size"}},
-    )
-    logger.info("ONNX export thành công.")
-
-    # Kiểm tra ONNX graph hợp lệ trước khi convert
-    onnx_model = onnx.load(str(onnx_path))
-    onnx.checker.check_model(onnx_model)
-    logger.info("ONNX model đã được xác thực.")
-
-    # ── Bước 3: ONNX → CoreML ────────────────────────────────────────────
+    # ── Bước 3: TorchScript → CoreML ─────────────────────────────────────
+    # coremltools 8+ không còn hỗ trợ ONNX trực tiếp; dùng pytorch source
     import coremltools as ct  # lazy import — tránh lỗi khi chạy --help
 
     logger.info("Convert sang CoreML: %s ...", mlpackage_path)
     coreml_model = ct.convert(
-        onnx_model,
+        traced_model,
+        source="pytorch",
+        inputs=[ct.TensorType(shape=dummy.shape, name="images")],
         compute_units=ct.ComputeUnit.ALL,
         minimum_deployment_target=ct.target.iOS15,
     )
@@ -94,7 +87,7 @@ def export(weights: str, imgsz: tuple[int, int] = (640, 640)) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Export YOLOv9 PT → ONNX → CoreML")
+    parser = argparse.ArgumentParser(description="Export YOLOv9 PT → TorchScript → CoreML")
     parser.add_argument("--weights", type=str, default="weights/best_roiv2.pt")
     parser.add_argument(
         "--imgsz",

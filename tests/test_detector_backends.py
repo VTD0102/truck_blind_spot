@@ -132,7 +132,7 @@ def test_coreml_init_raises_when_mlpackage_missing(monkeypatch):
             with mock.patch("src.detector.check_img_size", return_value=(640, 640)):
                 with pytest.raises(FileNotFoundError, match="export_coreml.py"):
                     YOLOv9Detector(
-                        weights_path="weights/best_roiv2.pt",
+                        weights_path="weights/nonexistent_for_test.pt",
                         device="",
                         backend="coreml",
                     )
