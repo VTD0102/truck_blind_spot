@@ -142,10 +142,10 @@ def test_coreml_predict_calls_model_predict(monkeypatch):
     """CoreML path gọi self._coreml_model.predict() với input đúng shape."""
     mock_coreml_model = mock.MagicMock()
     fake_output_tensor = np.zeros((1, 25200, 7), dtype=np.float32)
-    mock_coreml_model.predict.return_value = {"output": fake_output_tensor}
+    mock_coreml_model.predict.return_value = {"output0": fake_output_tensor}
     mock_spec = mock.MagicMock()
-    mock_spec.description.output[0].name = "output"
-    mock_spec.description.input[0].name = "image"
+    mock_spec.description.output[0].name = "output0"
+    mock_spec.description.input[0].name = "images"
     mock_coreml_model.get_spec.return_value = mock_spec
 
     mock_ct = mock.MagicMock()
@@ -168,6 +168,6 @@ def test_coreml_predict_calls_model_predict(monkeypatch):
 
     assert mock_coreml_model.predict.called
     call_args = mock_coreml_model.predict.call_args[0][0]
-    assert "image" in call_args
-    assert call_args["image"].shape == (1, 3, 640, 640)
+    assert "images" in call_args
+    assert call_args["images"].shape == (1, 3, 640, 640)
     assert result == []

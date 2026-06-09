@@ -44,29 +44,40 @@ def export(weights: str, imgsz: tuple[int, int] = (640, 640)) -> None:
     logger.info("Load model từ %s ...", weights_path)
     device = select_device("cpu")
     model = DetectMultiBackend(str(weights_path), device=device, dnn=False, fp16=False)
+
+    # Bật cờ export trên tất cả Detect heads để bỏ decoder khỏi graph
+    for m in model.modules():
+        if hasattr(m, "export"):
+            m.export = True
+
     model.eval()
 
     dummy = torch.zeros(1, 3, *imgsz)
 
     # ── Bước 2: PT → ONNX ────────────────────────────────────────────────
+    import onnx  # lazy import — tránh lỗi khi chạy --help
+
     logger.info("Export sang ONNX: %s ...", onnx_path)
     torch.onnx.export(
         model,
         dummy,
         str(onnx_path),
-        input_names=["image"],
-        output_names=["output"],
+        input_names=["images"],
+        output_names=["output0"],
         opset_version=12,
-        dynamic_axes={"image": {0: "batch_size"}, "output": {0: "batch_size"}},
+        dynamic_axes={"images": {0: "batch_size"}, "output0": {0: "batch_size"}},
     )
     logger.info("ONNX export thành công.")
 
+    # Kiểm tra ONNX graph hợp lệ trước khi convert
+    onnx_model = onnx.load(str(onnx_path))
+    onnx.checker.check_model(onnx_model)
+    logger.info("ONNX model đã được xác thực.")
+
     # ── Bước 3: ONNX → CoreML ────────────────────────────────────────────
     import coremltools as ct  # lazy import — tránh lỗi khi chạy --help
-    import onnx               # lazy import — tránh lỗi khi chạy --help
 
     logger.info("Convert sang CoreML: %s ...", mlpackage_path)
-    onnx_model = onnx.load(str(onnx_path))
     coreml_model = ct.convert(
         onnx_model,
         compute_units=ct.ComputeUnit.ALL,
