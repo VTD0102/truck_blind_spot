@@ -89,22 +89,11 @@ class YOLOv9Detector:
         if frame is None or frame.size == 0:
             raise ValueError("Khung hình đầu vào rỗng (empty).")
 
-        # Tiền xử lý khung hình: resize kích thước và thêm viền (letterbox)
-        # letterbox() trả về array mới — không mutate frame gốc
-        image = letterbox(
-            frame,
-            new_shape=self.imgsz,
-            stride=self.stride,
-            auto=self.pt,
-        )[0]
-        # Chuyển đổi định dạng từ HWC (OpenCV ảnh màu BGR) sang CHW (PyTorch RGB/BGR tùy mô hình)
-        image = image.transpose((2, 0, 1))[::-1]
-        image = np.ascontiguousarray(image)
-
         # Đẩy dữ liệu lên GPU/CPU
-        tensor = torch.from_numpy(image).to(self.model.device)
-        tensor = tensor.half() if self.fp16 else tensor.float()
-        tensor /= 255.0  # Chuẩn hóa về [0, 1]
+        img = self._preprocess(frame)
+        tensor = torch.from_numpy(img).to(self.device)
+        if self.fp16:
+            tensor = tensor.half()
         if tensor.ndim == 3:
             tensor = tensor.unsqueeze(0)
 
@@ -143,6 +132,12 @@ class YOLOv9Detector:
             )
 
         return detections
+
+    def _preprocess(self, frame: np.ndarray) -> np.ndarray:
+        """Letterbox + CHW transpose + BGR→RGB + normalize float32 [0, 1]."""
+        img = letterbox(frame, new_shape=self.imgsz, stride=self.stride, auto=self.pt)[0]
+        img = img.transpose((2, 0, 1))[::-1]
+        return np.ascontiguousarray(img).astype(np.float32) / 255.0
 
     @staticmethod
     def _unwrap_predictions(predictions):
