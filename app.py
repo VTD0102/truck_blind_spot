@@ -221,7 +221,7 @@ def draw_overlay(
 
 def open_capture(source: str) -> cv2.VideoCapture:
     cap_source: str | int = int(source) if source.isdigit() else source
-    cap = cv2.VideoCapture(cap_source)
+    cap = cv2.VideoCapture(1)
     if not cap.isOpened():
         raise RuntimeError(f"Không thể mở nguồn video: {source!r}")
     return cap
