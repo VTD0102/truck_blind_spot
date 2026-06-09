@@ -19,6 +19,7 @@ from typing import List, Optional
 
 import cv2
 import numpy as np
+import torch
 
 from src.pipeline import BlindSpotPipeline
 
@@ -220,10 +221,18 @@ def draw_overlay(
 
 
 def open_capture(source: str) -> cv2.VideoCapture:
-    cap_source: str | int = int(source) if source.isdigit() else source
-    cap = cv2.VideoCapture(1)
+    is_webcam = source.isdigit()
+    cap_source: str | int = int(source) if is_webcam else source
+    cap = cv2.VideoCapture(cap_source)
     if not cap.isOpened():
         raise RuntimeError(f"Không thể mở nguồn video: {source!r}")
+
+    # Webcam real-time: chỉ giữ 1 frame trong buffer để giảm độ trễ glass-to-glass,
+    # và ép codec MJPG để mở khóa FPS cao (nhiều webcam mặc định YUYV bị giới hạn fps).
+    if is_webcam:
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+
     return cap
 
 
@@ -243,6 +252,10 @@ def create_writer(cap: cv2.VideoCapture, output_path: str) -> cv2.VideoWriter:
 
 def main() -> None:
     args = parse_args()
+
+    # cuDNN autotuning: với input size cố định (letterbox 640), để cuDNN chọn thuật toán
+    # convolution nhanh nhất. Không tác dụng (no-op) trên CPU; chỉ tăng tốc khi chạy GPU CUDA.
+    torch.backends.cudnn.benchmark = True
 
     pipeline = BlindSpotPipeline(
         weights_path=args.weights,
