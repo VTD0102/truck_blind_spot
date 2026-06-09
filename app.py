@@ -63,6 +63,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--classes-config", type=str, default=DEFAULT_CLASSES)
     parser.add_argument("--device", type=str, default="")
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="pytorch",
+        choices=["pytorch", "coreml"],
+        help="Inference backend: pytorch (default) hoặc coreml (cần export trước).",
+    )
     parser.add_argument("--conf-thres", type=float, default=0.25)
     parser.add_argument("--iou-thres", type=float, default=0.45)
     parser.add_argument("--output", type=str, default=None)
@@ -106,7 +113,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Bật adaptive quality scaling: tự giảm resolution khi FPS < target.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.backend == "coreml" and args.device == "mps":
+        parser.error("--backend coreml và --device mps không dùng chung. Chọn một trong hai.")
+    return args
 
 
 # ─── Alert Logger ────────────────────────────────────────────────────────────
@@ -263,6 +273,7 @@ def main() -> None:
         roi_profile=args.roi_profile,
         classes_config_path=args.classes_config,
         device=args.device,
+        backend=args.backend,
         conf_threshold=args.conf_thres,
         iou_threshold=args.iou_thres,
         prediction_horizons_s=[args.prediction_horizon],

@@ -81,6 +81,7 @@ def test_app_main_accepts_pipeline_track_output(monkeypatch) -> None:
             roi_profile="front_camera",
             classes_config="configs/classes.yaml",
             device="",
+            backend="pytorch",
             conf_thres=0.25,
             iou_thres=0.45,
             output=None,
@@ -144,6 +145,7 @@ def test_app_main_no_display_skips_opencv_window_calls(monkeypatch) -> None:
             roi_profile="front_camera",
             classes_config="configs/classes.yaml",
             device="0",
+            backend="pytorch",
             conf_thres=0.25,
             iou_thres=0.45,
             output=None,
@@ -201,3 +203,15 @@ def test_parse_args_accepts_no_display(monkeypatch) -> None:
     args = app.parse_args()
 
     assert args.no_display is True
+
+
+def test_parse_args_accepts_backend_coreml(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["app.py", "--backend", "coreml"])
+    args = app.parse_args()
+    assert args.backend == "coreml"
+
+
+def test_parse_args_default_backend_is_pytorch(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["app.py"])
+    args = app.parse_args()
+    assert args.backend == "pytorch"
