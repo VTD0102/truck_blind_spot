@@ -57,3 +57,70 @@ def test_predict_returns_empty_list_when_no_detections(mock_detector):
 
     assert isinstance(result, list)
     assert result == []
+
+
+def test_mps_init_raises_when_unavailable(monkeypatch):
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    with mock.patch("src.detector.DetectMultiBackend"):
+        with mock.patch("src.detector.select_device", return_value=torch.device("cpu")):
+            with mock.patch("src.detector.check_img_size", return_value=(640, 640)):
+                with pytest.raises(RuntimeError, match="MPS không khả dụng"):
+                    YOLOv9Detector(weights_path="weights/best_roiv2.pt", device="mps", backend="pytorch")
+
+
+def test_mps_init_sets_mps_device_when_available(monkeypatch):
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+
+    mock_model = mock.MagicMock()
+    mock_model.stride = 32
+    mock_model.pt = True
+    mock_model.fp16 = False
+    mock_model.names = {0: "person"}
+    mock_model.triton = False
+    mock_model.warmup = mock.MagicMock()
+
+    with mock.patch("src.detector.DetectMultiBackend", return_value=mock_model):
+        with mock.patch("src.detector.check_img_size", return_value=(640, 640)):
+            det = YOLOv9Detector(weights_path="weights/best_roiv2.pt", device="mps", backend="pytorch")
+
+    assert det.device == torch.device("mps")
+    assert det.fp16 is False  # FP16 tắt cho MPS
+
+
+def test_mps_predict_returns_cpu_tensor_before_nms(monkeypatch):
+    """Predictions phải về CPU trước NMS khi dùng MPS — test không cần hardware MPS."""
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+
+    mock_model = mock.MagicMock()
+    mock_model.stride = 32
+    mock_model.pt = True
+    mock_model.fp16 = False
+    mock_model.names = {0: "person"}
+    mock_model.triton = False
+    mock_model.warmup = mock.MagicMock()
+    fake_output = torch.zeros((1, 25200, 7))
+    mock_model.return_value = fake_output
+
+    captured = {}
+
+    def fake_nms(preds, *args, **kwargs):
+        captured["device"] = preds.device.type
+        return [torch.zeros((0, 6))]
+
+    # Mock torch.from_numpy để tensor không thực sự lên MPS (không cần hardware)
+    def fake_from_numpy(arr):
+        return torch.zeros(arr.shape, dtype=torch.float32)
+
+    with mock.patch("src.detector.DetectMultiBackend", return_value=mock_model):
+        with mock.patch("src.detector.check_img_size", return_value=(640, 640)):
+            with mock.patch("src.detector.non_max_suppression", side_effect=fake_nms):
+                with mock.patch("src.detector.torch.from_numpy", side_effect=fake_from_numpy):
+                    det = YOLOv9Detector(
+                        weights_path="weights/best_roiv2.pt",
+                        device="mps",
+                        backend="pytorch",
+                    )
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                    det.predict(frame)
+
+    assert captured["device"] == "cpu"

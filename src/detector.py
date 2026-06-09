@@ -42,10 +42,22 @@ class YOLOv9Detector:
         dnn: bool = False,
         augment: bool = False,
         agnostic_nms: bool = False,
+        backend: str = "pytorch",
     ) -> None:
         self.weights_path = self._resolve_path(weights_path)
         self.classes_config_path = self._resolve_path(classes_config_path)
-        self.device = select_device(device)
+        self.backend = backend
+
+        if backend == "pytorch" and device == "mps":
+            if not torch.backends.mps.is_available():
+                raise RuntimeError(
+                    "MPS không khả dụng trên máy này. Chạy lại với --device cpu."
+                )
+            self.device = torch.device("mps")
+        elif backend == "coreml":
+            self.device = torch.device("cpu")
+        else:
+            self.device = select_device(device)
         self.image_size = image_size
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold
@@ -57,8 +69,8 @@ class YOLOv9Detector:
         # Tải tên các lớp từ tập tin yaml
         self.class_names = self._load_class_names(self.classes_config_path)
 
-        # Auto-detect FP16: bật mặc định trên GPU CUDA để tăng tốc ~30%
-        use_fp16 = half or (self.device.type != "cpu")
+        # FP16 chỉ bật cho CUDA — MPS FP32 đủ nhanh, CoreML tự quản lý precision
+        use_fp16 = (half or self.device.type == "cuda") and self.device.type != "mps"
         
         # Nạp mô hình YOLOv9 backend
         self.model = DetectMultiBackend(
@@ -102,6 +114,9 @@ class YOLOv9Detector:
             predictions = self.model(tensor, augment=self.augment)
 
         predictions = self._unwrap_predictions(predictions)
+        # NMS có op không support trên MPS — chuyển về CPU
+        if self.device.type == "mps":
+            predictions = predictions.cpu()
         predictions = non_max_suppression(
             predictions,
             self.conf_threshold,
