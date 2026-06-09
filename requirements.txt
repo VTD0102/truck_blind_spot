@@ -21,3 +21,7 @@ scipy>=1.10.0
 matplotlib>=3.7.0
 pandas>=2.0.0
 seaborn>=0.12.0
+
+# ── Apple Silicon Acceleration (Phase 2 — optional) ─────────────────────────
+coremltools>=7.0    # export + load .mlpackage trên macOS Apple Silicon
+onnx>=1.14.0        # intermediate format khi export PT → ONNX → CoreML
