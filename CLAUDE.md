@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Truck Blind Spot Detection** is a real-time YOLOv9-based ADAS system that flags objects (person, bike, motor, car, truck, bus) entering configurable blind-spot zones of a truck. The current default checkpoint is `weights/best_6k.pt` (see `app.py` defaults).
+**Truck Blind Spot Detection** is a real-time YOLOv9-based ADAS system that flags objects (person, bike, motor, car, truck, bus) entering configurable blind-spot zones of a truck. The current default checkpoint is `weights/best_roiv2.pt` (see `app.py` defaults).
 
 > **Read `RULES.md`** — it's the project's enforced rulebook (Python 3.10+, Vietnamese comments/error messages, dependency direction, performance budgets, visualization conventions). This file does not duplicate those rules.
 
@@ -44,7 +44,7 @@ Frame
 | `configs/classes.yaml` | 6 classes: `person, bike, motor, car, truck, bus`. Must stay in sync with `configs/blindspot.yaml`. |
 | `configs/roi.json` | Multi-zone ROI. Schema: `profiles.{front_camera,rear_camera}.zones[].{name, risk_level, color, polygon}`. |
 | `configs/blindspot.yaml` | Dataset YAML for YOLOv9 training/eval (used by `roi_evaluation.py`). |
-| `weights/best_6k.pt`, `weights/best_pilot_4k5.pt` | Fine-tuned checkpoints. `best_6k.pt` is the current `app.py` default. |
+| `weights/best_roiv2.pt` | Fine-tuned checkpoint V3 (fine-tune ROI 8k), current `app.py` default. `weights/best_roiv2.mlpackage` / `.onnx` là bản export cho CoreML backend (sinh bởi `tools/export_coreml.py`). |
 
 ---
 
@@ -60,7 +60,7 @@ pip install -r requirements.txt
 ### Demo (app.py)
 
 ```bash
-# Default: weights/best_6k.pt + assets/videos/demo4.mp4 + roi-profile=front_camera
+# Default: weights/best_roiv2.pt + assets/videos/demo4.mp4 + roi-profile=front_camera
 python3 app.py
 
 # Swap ROI profile (required when camera is rear-facing)
@@ -71,7 +71,8 @@ python3 app.py --source assets/videos/demo.mp4 --output outputs/result.mp4
 python3 app.py --source 0                         # webcam index 0
 python3 app.py --loop                             # loop a file source
 python3 app.py --conf-thres 0.3 --iou-thres 0.5
-python3 app.py --device cpu                       # or cuda:0 (empty = auto)
+python3 app.py --device cpu                       # or cuda:0 / mps (empty = auto)
+python3 app.py --backend coreml                   # Apple Neural Engine (cần export trước, loại trừ với --device mps)
 ```
 
 Playback keys: `p` pause/resume · `r` restart (file only) · `q` quit. `src/pipeline.py`'s standalone viewer also accepts `Esc`.
@@ -96,7 +97,7 @@ python -m pytest tests/test_tracking_smoke.py -v  # tracking module only (no GPU
 
 ```bash
 python -m src.roi_evaluation \
-  --weights weights/best_6k.pt \
+  --weights weights/best_roiv2.pt \
   --data configs/blindspot.yaml \
   --roi configs/roi.json \
   --roi-profile front_camera \
