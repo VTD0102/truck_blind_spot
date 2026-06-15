@@ -1,0 +1,42 @@
+# Dataset configuration for Truck Blind Spot Detection
+# Used by: python -m src.roi_evaluation --data configs/blindspot.yaml
+
+# Absolute (or relative-to-this-file) path to the dataset root directory.
+# The train/val/test values below are relative to this path.
+path: yolov9/data/datasets
+
+# Image directories relative to 'path'
+# NOTE: dataset uses split-first layout (train/images/, valid/images/)
+#       not the standard YOLO layout (images/train/).
+#       'val' key maps to the 'valid/' directory on disk.
+train: train/images
+val:   valid/images
+test:  test/images  # optional; omit if not available
+
+# Number of classes
+nc: 6
+
+# Class names — must match configs/classes.yaml
+names:
+  0: person
+  1: bike
+  2: motor
+  3: car
+  4: truck
+  5: bus
+
+# ─── Expected dataset layout ──────────────────────────────────────────────
+#
+# <path>/
+#   images/
+#     train/   *.jpg / *.png / ...
+#     val/
+#     test/
+#   labels/
+#     train/   *.txt  (YOLO format: class_id x_c y_c w h, normalised)
+#     val/
+#     test/
+#
+# Each image file must have a matching label file at the same relative path
+# under labels/ with a .txt extension.
+# Images with no objects should have an empty .txt file (not missing).

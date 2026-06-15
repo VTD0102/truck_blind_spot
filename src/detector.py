@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -9,9 +8,16 @@ import numpy as np
 import torch
 import yaml
 
+try:
+    from .common.models import Detection
+except ImportError:
+    from common.models import Detection  # type: ignore
+
+# Thư mục gốc của dự án
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 YOLO_ROOT = PROJECT_ROOT / "yolov9"
 
+# Thêm đường dẫn YOLOv9 vào sys.path để import các module nội bộ của nó
 if str(YOLO_ROOT) not in sys.path:
     sys.path.append(str(YOLO_ROOT))
 
@@ -20,20 +26,8 @@ from utils.augmentations import letterbox
 from utils.general import check_img_size, non_max_suppression, scale_boxes
 from utils.torch_utils import select_device
 
-
-@dataclass
-class Detection:
-    bbox: Tuple[int, int, int, int]
-    confidence: float
-    class_id: int
-    class_name: str
-    in_roi: bool = False
-    anchor_point: Optional[Tuple[int, int]] = None
-    zone_name: Optional[str] = None
-    risk_level: Optional[str] = None
-
-
 class YOLOv9Detector:
+    """Lớp bao bọc (wrapper) cho mô hình YOLOv9."""
     def __init__(
         self,
         weights_path: str = "weights/best_small.pt",
@@ -48,10 +42,22 @@ class YOLOv9Detector:
         dnn: bool = False,
         augment: bool = False,
         agnostic_nms: bool = False,
+        backend: str = "pytorch",
     ) -> None:
         self.weights_path = self._resolve_path(weights_path)
         self.classes_config_path = self._resolve_path(classes_config_path)
-        self.device = select_device(device)
+        self.backend = backend
+
+        if backend == "pytorch" and device == "mps":
+            if not torch.backends.mps.is_available():
+                raise RuntimeError(
+                    "MPS không khả dụng trên máy này. Chạy lại với --device cpu."
+                )
+            self.device = torch.device("mps")
+        elif backend == "coreml":
+            self.device = torch.device("cpu")
+        else:
+            self.device = select_device(device)
         self.image_size = image_size
         self.conf_threshold = conf_threshold
         self.iou_threshold = iou_threshold
@@ -60,13 +66,30 @@ class YOLOv9Detector:
         self.augment = augment
         self.agnostic_nms = agnostic_nms
 
+        # Tải tên các lớp từ tập tin yaml
         self.class_names = self._load_class_names(self.classes_config_path)
+
+        # FP16 chỉ bật cho CUDA — MPS FP32 đủ nhanh, CoreML tự quản lý precision
+        use_fp16 = (half or self.device.type == "cuda") and self.device.type != "mps"
+
+        # CoreML path: bỏ qua DetectMultiBackend và warmup
+        if self.backend == "coreml":
+            self.stride = 32
+            self.pt = False
+            self.fp16 = False
+            self.imgsz = check_img_size(image_size, s=self.stride)
+            mlpackage_path = str(Path(self.weights_path).with_suffix(".mlpackage"))
+            self._init_coreml(mlpackage_path)
+            self.model = None  # CoreML không dùng DetectMultiBackend
+            return
+
+        # Nạp mô hình YOLOv9 backend
         self.model = DetectMultiBackend(
             self.weights_path,
             device=self.device,
             dnn=dnn,
             data=None,
-            fp16=half and self.device.type != "cpu",
+            fp16=use_fp16 and self.device.type != "cpu",
         )
         self.stride = self.model.stride
         self.pt = self.model.pt
@@ -76,34 +99,38 @@ class YOLOv9Detector:
         if not self.class_names:
             self.class_names = self._normalize_model_names(self.model.names)
 
+        # Chạy warmup cho model
         self.model.warmup(
             imgsz=(1 if self.pt or self.model.triton else 1, 3, *self.imgsz)
         )
 
     def predict(self, frame: np.ndarray) -> List[Detection]:
+        """Hàm dự đoán nhãn trên một khung hình ảnh.
+
+        Lưu ý: Không copy frame — letterbox tạo array mới, scale_boxes chỉ đọc shape.
+        """
         if frame is None or frame.size == 0:
-            raise ValueError("Input frame is empty.")
+            raise ValueError("Khung hình đầu vào rỗng (empty).")
 
-        original_frame = frame.copy()
-        image = letterbox(
-            original_frame,
-            new_shape=self.imgsz,
-            stride=self.stride,
-            auto=self.pt,
-        )[0]
-        image = image.transpose((2, 0, 1))[::-1]
-        image = np.ascontiguousarray(image)
+        if self.backend == "coreml":
+            return self._predict_coreml(frame)
 
-        tensor = torch.from_numpy(image).to(self.model.device)
-        tensor = tensor.half() if self.fp16 else tensor.float()
-        tensor /= 255.0
+        # Đẩy dữ liệu lên GPU/CPU
+        img = self._preprocess(frame)
+        tensor = torch.from_numpy(img).to(self.device)
+        if self.fp16:
+            tensor = tensor.half()
         if tensor.ndim == 3:
             tensor = tensor.unsqueeze(0)
 
+        # Thực hiện suy luận (inference)
         with torch.inference_mode():
             predictions = self.model(tensor, augment=self.augment)
 
         predictions = self._unwrap_predictions(predictions)
+        # NMS có op không support trên MPS — chuyển về CPU
+        if self.device.type == "mps":
+            predictions = predictions.cpu()
         predictions = non_max_suppression(
             predictions,
             self.conf_threshold,
@@ -118,7 +145,8 @@ class YOLOv9Detector:
         if not len(det):
             return detections
 
-        det[:, :4] = scale_boxes(tensor.shape[2:], det[:, :4], original_frame.shape).round()
+        # Đưa các bbox về tọa độ của ảnh gốc (chỉ đọc frame.shape, không mutate)
+        det[:, :4] = scale_boxes(tensor.shape[2:], det[:, :4], frame.shape).round()
 
         for *xyxy, confidence, class_id in det.tolist():
             class_index = int(class_id)
@@ -132,6 +160,67 @@ class YOLOv9Detector:
                 )
             )
 
+        return detections
+
+    def _preprocess(self, frame: np.ndarray) -> np.ndarray:
+        """Letterbox + CHW transpose + BGR→RGB + normalize float32 [0, 1]."""
+        img = letterbox(frame, new_shape=self.imgsz, stride=self.stride, auto=self.pt)[0]
+        img = img.transpose((2, 0, 1))[::-1]
+        return np.ascontiguousarray(img).astype(np.float32) / 255.0
+
+    def _init_coreml(self, mlpackage_path: str) -> None:
+        """Khởi tạo CoreML model từ .mlpackage."""
+        if not Path(mlpackage_path).exists():
+            raise FileNotFoundError(
+                f"CoreML model không tìm thấy: {mlpackage_path}\n"
+                f"Chạy trước: python3 tools/export_coreml.py --weights {self.weights_path}"
+            )
+
+        import coremltools as ct  # import lazy — chỉ khi dùng CoreML
+
+        self._coreml_model = ct.models.MLModel(mlpackage_path)
+        spec = self._coreml_model.get_spec()
+        self._coreml_output_key = spec.description.output[0].name
+        self._coreml_input_key = spec.description.input[0].name
+
+    def _predict_coreml(self, frame: np.ndarray) -> List[Detection]:
+        """Inference qua CoreML backend."""
+        img = self._preprocess(frame)
+        input_arr = img[np.newaxis]  # (1, 3, H, W) float32
+
+        out = self._coreml_model.predict({self._coreml_input_key: input_arr})
+        raw = out[self._coreml_output_key]
+        predictions = torch.from_numpy(raw if isinstance(raw, np.ndarray) else np.array(raw))
+
+        predictions = non_max_suppression(
+            predictions,
+            self.conf_threshold,
+            self.iou_threshold,
+            self.classes,
+            self.agnostic_nms,
+            max_det=self.max_det,
+        )
+
+        detections: List[Detection] = []
+        det = predictions[0]
+        if not len(det):
+            return detections
+
+        det[:, :4] = scale_boxes(
+            (self.imgsz[0], self.imgsz[1]), det[:, :4], frame.shape
+        ).round()
+
+        for *xyxy, confidence, class_id in det.tolist():
+            class_index = int(class_id)
+            x1, y1, x2, y2 = [int(v) for v in xyxy]
+            detections.append(
+                Detection(
+                    bbox=(x1, y1, x2, y2),
+                    confidence=float(confidence),
+                    class_id=class_index,
+                    class_name=self.class_names.get(class_index, str(class_index)),
+                )
+            )
         return detections
 
     @staticmethod
@@ -158,6 +247,7 @@ class YOLOv9Detector:
 
     @staticmethod
     def _resolve_path(path: str) -> str:
+        """Xử lý đường dẫn tuyệt đối/tương đối."""
         path_obj = Path(path)
         if not path_obj.is_absolute():
             path_obj = PROJECT_ROOT / path_obj
@@ -165,6 +255,7 @@ class YOLOv9Detector:
 
     @staticmethod
     def _normalize_model_names(model_names: object) -> Dict[int, str]:
+        """Chuẩn hóa dictionary lưu tên của class."""
         if isinstance(model_names, dict):
             return {int(key): str(value) for key, value in model_names.items()}
         if isinstance(model_names, (list, tuple)):
@@ -173,6 +264,7 @@ class YOLOv9Detector:
 
     @staticmethod
     def _load_class_names(classes_config_path: str) -> Dict[int, str]:
+        """Đọc và lấy tên class từ tệp cấu hình yaml."""
         config_path = Path(classes_config_path)
         if not config_path.exists():
             return {}

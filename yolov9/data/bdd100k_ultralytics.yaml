@@ -1,4 +1,4 @@
-# danh sách các class cũ lấy trong dataset 100k ảnh 
+# danh sách các class cũ lấy trong dataset 100k ảnh
 train: train/images
 val: valid/images
 test: test/images

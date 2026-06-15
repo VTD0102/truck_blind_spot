@@ -21,3 +21,6 @@ scipy>=1.10.0
 matplotlib>=3.7.0
 pandas>=2.0.0
 seaborn>=0.12.0
+
+# ── Apple Silicon Acceleration (Phase 2 — optional) ─────────────────────────
+coremltools>=7.0,<9.0  # export + load .mlpackage trên macOS Apple Silicon (9.0 có bug với YOLOv9)
