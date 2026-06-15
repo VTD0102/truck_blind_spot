@@ -39,6 +39,7 @@ class BlindSpotPipeline:
             image_size=image_size,
             conf_threshold=conf_threshold,
             iou_threshold=iou_threshold,
+            half=True,
         )
         self.roi = MultiPolygonROI(
             roi_config_path=self._resolve_path(roi_config_path),
