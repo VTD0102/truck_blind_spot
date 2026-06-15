@@ -190,3 +190,9 @@ yolov9/data/datasets/
 
 # Compressed files
 *.zip
+
+yolov9_env/
+venv/
+.venv/
+__pycache__/
+*.pyc
