@@ -93,6 +93,8 @@ def test_app_main_accepts_pipeline_track_output(monkeypatch) -> None:
             alert_log=None,
             enable_frame_skip=False,
             enable_adaptive_scale=False,
+            screen=False,
+            screen_monitor=1,
         ),
     )
     monkeypatch.setattr(app, "BlindSpotPipeline", lambda **kwargs: fake_pipeline)
@@ -157,6 +159,8 @@ def test_app_main_no_display_skips_opencv_window_calls(monkeypatch) -> None:
             alert_log=None,
             enable_frame_skip=False,
             enable_adaptive_scale=False,
+            screen=False,
+            screen_monitor=1,
         ),
     )
     monkeypatch.setattr(app, "BlindSpotPipeline", lambda **kwargs: fake_pipeline)

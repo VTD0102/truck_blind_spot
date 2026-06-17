@@ -124,12 +124,42 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Chỉ số thiết bị webcam (0 = webcam mặc định, 1 = webcam thứ hai, ...).",
     )
+    parser.add_argument(
+        "--screen",
+        action="store_true",
+        help="Capture màn hình làm nguồn đầu vào (yêu cầu: pip install mss).",
+    )
+    parser.add_argument(
+        "--screen-monitor",
+        type=int,
+        default=1,
+        help="Chỉ số màn hình cần capture (1 = primary, 2 = secondary, ...).",
+    )
+    parser.add_argument(
+        "--screen-region",
+        nargs=4,
+        type=int,
+        metavar=("X", "Y", "W", "H"),
+        default=None,
+        help="Capture một vùng cụ thể thay vì toàn màn hình: X Y W H (pixel). "
+             "Dùng Cmd+Shift+4 trên macOS để xác định toạ độ.",
+    )
     args = parser.parse_args()
     if args.backend == "coreml" and args.device == "mps":
         parser.error("--backend coreml và --device mps không dùng chung. Chọn một trong hai.")
     if args.webcam:
         args.source = str(args.webcam_id)
         args.loop = False  # webcam là live stream, không có loop
+    if args.screen and args.webcam:
+        parser.error("--screen và --webcam không dùng chung. Chọn một trong hai.")
+    if args.screen and args.screen_region is None:
+        parser.error(
+            "--screen yêu cầu chỉ định --screen-region X Y W H để tránh vòng lặp.\n"
+            "  Cách xác định toạ độ trên macOS:\n"
+            "    1. Nhấn Cmd+Shift+4 — con trỏ hiển thị toạ độ khi di chuột\n"
+            "    2. Chú ý góc trên-trái (X, Y) và kích thước (W, H) của cửa sổ video\n"
+            "  Ví dụ: --screen-region 100 200 800 450"
+        )
     return args
 
 
@@ -260,6 +290,113 @@ def open_capture(source: str) -> cv2.VideoCapture:
     return cap
 
 
+def run_screen_capture(
+    pipeline: "BlindSpotPipeline",
+    args: "argparse.Namespace",
+    alert_logger: "AlertLogger",
+) -> None:
+    """Vòng lặp capture màn hình → pipeline → hiển thị kết quả."""
+    try:
+        import mss  # lazy import — chỉ cần khi dùng --screen
+    except ModuleNotFoundError:
+        raise ModuleNotFoundError(
+            "Thiếu thư viện mss. Cài bằng: pip install mss"
+        )
+
+    display_enabled = not args.no_display
+    smoothed_fps = 0.0
+    frame_idx = 0
+
+    if display_enabled:
+        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(WINDOW_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+
+    writer: cv2.VideoWriter | None = None
+
+    with mss.MSS() as sct:
+        monitors = sct.monitors
+        if args.screen_monitor >= len(monitors):
+            raise ValueError(
+                f"Màn hình {args.screen_monitor} không tồn tại. "
+                f"Hệ thống có {len(monitors) - 1} màn hình."
+            )
+
+        if args.screen_region:
+            x, y, w, h = args.screen_region
+            base = monitors[args.screen_monitor]
+            monitor = {"left": base["left"] + x, "top": base["top"] + y, "width": w, "height": h}
+            logger.info("Chế độ screen capture — vùng: x=%d y=%d w=%d h=%d", x, y, w, h)
+        else:
+            monitor = monitors[args.screen_monitor]
+            logger.info("Chế độ screen capture — toàn màn hình %d", args.screen_monitor)
+
+        mon_w, mon_h = monitor["width"], monitor["height"]
+        logger.info("Kích thước vùng capture: %dx%d — Phím tắt: [q] Thoát", mon_w, mon_h)
+
+        if args.output and writer is None:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(str(out_path), fourcc, args.target_fps, (mon_w, mon_h))
+
+        try:
+            while True:
+                screenshot = sct.grab(monitor)
+                # mss trả về BGRA — bỏ kênh alpha, đảm bảo contiguous để OpenCV không lỗi
+                frame = np.ascontiguousarray(np.array(screenshot)[:, :, :3])
+
+                frame_idx += 1
+                t0 = time.perf_counter()
+                annotated, _, tracks = pipeline.process_frame(frame)
+                elapsed = time.perf_counter() - t0
+
+                for track_id, pred in (pipeline.last_predictions or {}).items():
+                    if pred.alert_level in ("medium", "high"):
+                        zone = next(
+                            (t.zone_name for t in tracks if t.track_id == track_id),
+                            "?",
+                        )
+                        alert_logger.log(
+                            frame_idx=frame_idx,
+                            track_id=track_id,
+                            alert_level=pred.alert_level,
+                            zone=zone or "?",
+                            confidence=pred.overall_confidence,
+                            velocity=pred.velocity_px_per_s,
+                        )
+
+                current_fps = 1.0 / max(elapsed, 1e-6)
+                smoothed_fps = (
+                    current_fps if smoothed_fps == 0.0
+                    else smoothed_fps * 0.9 + current_fps * 0.1
+                )
+
+                draw_overlay(
+                    annotated,
+                    smoothed_fps,
+                    paused=False,
+                    perf_summary=pipeline.perf.summary(),
+                    scale_factor=1.0,
+                    frame_skipping=False,
+                )
+
+                if writer is not None:
+                    writer.write(annotated)
+
+                if display_enabled:
+                    cv2.imshow(WINDOW_NAME, annotated)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
+                else:
+                    break  # no-display: chỉ xử lý 1 frame rồi thoát (dùng với --output)
+
+        finally:
+            if writer is not None:
+                writer.release()
+            if display_enabled:
+                cv2.destroyAllWindows()
+
+
 def create_writer(cap: cv2.VideoCapture, output_path: str) -> cv2.VideoWriter:
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -295,6 +432,12 @@ def main() -> None:
         target_fps=args.target_fps,
     )
 
+    alert_logger = AlertLogger(csv_path=args.alert_log)
+
+    if args.screen:
+        run_screen_capture(pipeline, args, alert_logger)
+        return
+
     cap = open_capture(args.source)
     is_file = not args.source.isdigit()
 
@@ -327,9 +470,6 @@ def main() -> None:
 
     # Target timing
     target_frame_ms = 1000.0 / args.target_fps
-
-    # Alert logger
-    alert_logger = AlertLogger(csv_path=args.alert_log)
 
     logger.info("Source     : %s", args.source)
     logger.info("Frame size : %dx%d", orig_width, orig_height)
