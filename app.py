@@ -113,9 +113,23 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Bật adaptive quality scaling: tự giảm resolution khi FPS < target.",
     )
+    parser.add_argument(
+        "--webcam",
+        action="store_true",
+        help="Dùng webcam làm nguồn đầu vào (shorthand cho --source <webcam-id>).",
+    )
+    parser.add_argument(
+        "--webcam-id",
+        type=int,
+        default=0,
+        help="Chỉ số thiết bị webcam (0 = webcam mặc định, 1 = webcam thứ hai, ...).",
+    )
     args = parser.parse_args()
     if args.backend == "coreml" and args.device == "mps":
         parser.error("--backend coreml và --device mps không dùng chung. Chọn một trong hai.")
+    if args.webcam:
+        args.source = str(args.webcam_id)
+        args.loop = False  # webcam là live stream, không có loop
     return args
 
 

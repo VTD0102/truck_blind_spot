@@ -215,3 +215,16 @@ def test_parse_args_default_backend_is_pytorch(monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["app.py"])
     args = app.parse_args()
     assert args.backend == "pytorch"
+
+
+def test_parse_args_webcam_sets_source_to_webcam_id(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["app.py", "--webcam"])
+    args = app.parse_args()
+    assert args.source == "0"
+    assert args.loop is False
+
+
+def test_parse_args_webcam_id_overrides_default(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["app.py", "--webcam", "--webcam-id", "2"])
+    args = app.parse_args()
+    assert args.source == "2"
