@@ -23,7 +23,7 @@ import torch
 
 from src.pipeline import BlindSpotPipeline
 
-# ─── Logging ─────────────────────────────────────────────────────────────────
+# Logging 
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app")
 
-# ─── Constants ───────────────────────────────────────────────────────────────
+# Constants
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 WINDOW_NAME = "YOLOv9 Blind Spot Demo"

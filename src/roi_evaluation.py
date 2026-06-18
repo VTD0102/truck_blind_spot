@@ -114,7 +114,7 @@ class ZoneClassMetrics:
         }
 
 
-# ─── Core evaluator ───────────────────────────────────────────────────────────
+# Core evaluator 
 
 
 class ROIEvaluator:
@@ -340,15 +340,6 @@ class ROIEvaluator:
         predictions: List[Detection],
         gt_objects: List[GTObject],
     ) -> None:
-        """
-        Greedy IoU matching (standard object-detection convention).
-
-        Predictions are sorted by confidence descending.  Each prediction is
-        matched to the highest-IoU unmatched GT of the same class that meets
-        `iou_match_threshold`.  Each GT can be matched at most once.
-
-        Mutates gt_objects[i].is_matched in place.
-        """
         sorted_preds = sorted(predictions, key=lambda d: d.confidence, reverse=True)
 
         for pred in sorted_preds:
@@ -369,7 +360,7 @@ class ROIEvaluator:
                 gt_objects[best_idx].is_matched = True
 
 
-# ─── IoU helper (module-level, reusable) ──────────────────────────────────────
+# IoU helper (module-level, reusable)
 
 
 def _compute_iou(
