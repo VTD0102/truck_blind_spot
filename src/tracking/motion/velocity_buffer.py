@@ -146,6 +146,7 @@ class VelocityBuffer:
             empty = np.empty(0, dtype=np.float64)
             return empty, empty, empty
 
+        # Lấy ``length`` mẫu cuối, tách thành mảng timestamp, tọa độ x và y.
         ts_list = list(self.timestamps)[-length:]
         pos_list = list(self.positions)[-length:]
         ts = np.asarray(ts_list, dtype=np.float64)
@@ -157,7 +158,9 @@ class VelocityBuffer:
     def _fit_velocity(
         self, arrays: Tuple[np.ndarray, np.ndarray, np.ndarray]
     ) -> Optional[Velocity]:
+        """Ước lượng (vx, vy) bằng hồi quy bậc 1 (least-squares) theo thời gian."""
         ts, xs, ys = arrays
+        # Cần tối thiểu số mẫu; nếu mọi timestamp trùng nhau thì chia cho dt=0 → bỏ.
         if ts.size < self.min_points_for_velocity:
             return None
         if ts[-1] == ts[0]:
@@ -165,9 +168,10 @@ class VelocityBuffer:
         if np.unique(ts).size < 2:
             return None
 
+        # Dịch mốc thời gian về 0 để tránh RankWarning với timestamp epoch lớn.
         fit_ts = ts - ts[0]
 
-        # polyfit bậc 1: x = vx*t + b  →  vx = slope
+        # polyfit bậc 1: x = vx*t + b  →  hệ số bậc nhất (slope) chính là vận tốc.
         vx = float(np.polyfit(fit_ts, xs, 1)[0])
         vy = float(np.polyfit(fit_ts, ys, 1)[0])
         return (vx, vy)

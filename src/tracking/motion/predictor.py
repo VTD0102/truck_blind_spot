@@ -62,30 +62,37 @@ class MotionPredictor:
         # Phạt confidence nếu chuyển động bất thường
         confidence_penalty = self._compute_motion_penalty(track, velocity)
 
+        # Dựng quỹ đạo dự đoán: với mỗi mốc thời gian tương lai (horizon), ngoại
+        # suy ra một điểm và gắn confidence tương ứng cho điểm đó.
         trajectory: List[PredictedPoint] = []
         if track.anchor_point is not None:
             for dt in self.prediction_horizons_s:
+                # Ngoại suy vị trí tại thời điểm +dt giây từ vận tốc & gia tốc.
                 pos = self._extrapolator.extrapolate(
                     current_position=track.anchor_point,
                     velocity=velocity,
                     acceleration=acceleration,
                     dt_seconds=dt,
                 )
+                # Confidence gốc (theo chất lượng track + độ mượt + suy giảm thời gian)
                 raw_conf = self._extrapolator.compute_confidence(
                     track=track,
                     prediction_horizon_s=dt,
                     velocity_variance=self._velocity_variance(track),
                 )
+                # Trừ đi phần phạt do chuyển động bất thường, kẹp không âm.
                 conf = max(0.0, raw_conf - confidence_penalty)
                 trajectory.append(
                     PredictedPoint(position=pos, timestamp_s=dt, confidence=conf)
                 )
 
+        # Confidence tổng = trung bình confidence các điểm trên quỹ đạo.
         overall_confidence = (
             sum(p.confidence for p in trajectory) / len(trajectory)
             if trajectory
             else 0.0
         )
+        # Quy đổi confidence tổng + trạng thái ROI thành mức cảnh báo.
         alert_level = self._compute_alert_level(track, overall_confidence)
 
         # Lưu vận tốc hiện tại để kiểm tra frame kế tiếp

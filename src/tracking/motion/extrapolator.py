@@ -91,6 +91,9 @@ class TrajectoryExtrapolator:
                 f"dt_seconds phải không âm (nhận được {dt_seconds})."
             )
 
+        # Nếu có homography: warp vị trí pixel sang không gian BEV trước khi
+        # ngoại suy (chuyển động trên mặt phẳng thật tuyến tính hơn, dự đoán
+        # chính xác hơn). Không có transform thì ngoại suy thẳng trong pixel.
         if self.perspective_transform is not None:
             x0, y0 = self.perspective_transform.pixel_to_bev(current_position)
         else:
@@ -98,10 +101,13 @@ class TrajectoryExtrapolator:
         vx, vy = velocity
         ax, ay = acceleration
 
+        # Phương trình động học bậc 2: x(t) = x0 + v*t + 0.5*a*t^2 (tách riêng x, y).
         dt2_half = 0.5 * dt_seconds * dt_seconds
         x = x0 + vx * dt_seconds + ax * dt2_half
         y = y0 + vy * dt_seconds + ay * dt2_half
 
+        # Có transform thì warp ngược điểm BEV vừa dự đoán về pixel để vẽ;
+        # không thì làm tròn về int (tọa độ pixel).
         if self.perspective_transform is not None:
             return self.perspective_transform.bev_to_pixel((x, y))
         return (int(round(x)), int(round(y)))
@@ -138,20 +144,29 @@ class TrajectoryExtrapolator:
                 f"(nhận được {velocity_variance})."
             )
 
+        # (1) tracking_quality: tỉ lệ frame khớp được detection trên tổng số frame
+        #     track tồn tại. Khớp càng đều → track càng đáng tin.
         total_frames = track.hits + track.misses
         tracking_quality = (
             track.hits / total_frames if total_frames > 0 else 0.0
         )
+        # (2) detection_consistency: track đã được phát hiện đủ "chín" hay chưa,
+        #     bão hòa về 1.0 khi hits đạt ngưỡng min_hits_threshold.
         detection_consistency = (
             min(track.hits, self.min_hits_threshold) / self.min_hits_threshold
         )
+        # (3) motion_smoothness: chuyển động càng mượt (phương sai vận tốc thấp)
+        #     thì điểm càng gần 1.0; nhiễu nhiều → giảm về 0.
         motion_smoothness = 1.0 / (1.0 + velocity_variance)
 
+        # Tổ hợp tuyến tính 3 thành phần theo trọng số (tổng trọng số = 1.0).
         base_confidence = (
             self.tracking_weight * tracking_quality
             + self.consistency_weight * detection_consistency
             + self.smoothness_weight * motion_smoothness
         )
+        # Nhân hệ số suy giảm theo thời gian: dự đoán càng xa (dt lớn) càng kém
+        # chắc chắn → exp(-lambda * dt). Cuối cùng kẹp về [0, 1].
         decay = math.exp(-self.decay_lambda * prediction_horizon_s)
         return max(0.0, min(1.0, base_confidence * decay))
 

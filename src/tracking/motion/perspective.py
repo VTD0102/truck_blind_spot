@@ -59,10 +59,15 @@ class PerspectiveTransform:
 
     @staticmethod
     def _project_point(point: Tuple[float, float], matrix: np.ndarray) -> BEVPoint:
+        """Chiếu một điểm 2D qua ma trận homography 3x3 (dùng tọa độ thuần nhất)."""
+        # Nâng điểm (x, y) lên tọa độ thuần nhất (homogeneous) [x, y, 1].
         homogeneous = np.array([float(point[0]), float(point[1]), 1.0], dtype=np.float64)
+        # Nhân với ma trận → điểm chiếu vẫn ở dạng thuần nhất [x', y', w'].
         projected = matrix @ homogeneous
+        # w' ~ 0 nghĩa là điểm bị đẩy ra vô cực → không chia được, báo lỗi.
         if np.isclose(projected[2], 0.0):
             raise ValueError("Điểm biến đổi có tọa độ homogeneous z gần bằng 0.")
+        # Chia cho w' để quay lại tọa độ Descartes (x'/w', y'/w').
         x = projected[0] / projected[2]
         y = projected[1] / projected[2]
         return (float(x), float(y))
